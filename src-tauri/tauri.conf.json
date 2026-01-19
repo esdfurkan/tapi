@@ -1,0 +1,45 @@
+{
+  "productName": "TAPI",
+  "version": "0.1.0",
+  "identifier": "com.furkan.tapi",
+  "build": {
+    "beforeDevCommand": "yarn dev",
+    "beforeBuildCommand": "yarn build",
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Unofficial Translation Tool",
+        "width": 800,
+        "height": 600
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: asset:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "deb",
+      "rpm",
+      "appimage",
+      "nsis",
+      "msi"
+    ],
+    "windows": {
+      "wix": {
+        "language": [
+          "en-US"
+        ]
+      }
+    },
+    "icon": [
+      "icons/icon.png"
+    ],
+    "copyright": "Copyright © 2026 Furkan. All rights reserved.",
+    "shortDescription": "Unofficial Translation Tool"
+  }
+}

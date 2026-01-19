@@ -1,0 +1,48 @@
+{
+    "app": {
+        "title": "TAPI Translation Tool",
+        "subtitle": "Select a mode and start translating.",
+        "select_mode": "Select a mode",
+        "settings": "Open Settings"
+    },
+    "modes": {
+        "cli": {
+            "title": "CLI / Folder",
+            "desc": "Translate a local folder of images."
+        },
+        "archive": {
+            "title": "Archive",
+            "desc": "Translate ZIP/CBZ/PDF files."
+        },
+        "mangadex": {
+            "title": "MangaDex",
+            "desc": "Download and translate from MangaDex."
+        }
+    },
+    "headers": {
+        "folder_translation": "Folder Translation",
+        "archive_translation": "Archive Translation",
+        "mangadex_downloader": "MangaDex Downloader"
+    },
+    "settings": {
+        "title": "Settings",
+        "api_key": "API Key",
+        "model": "Model",
+        "font": "Font",
+        "appearance": "Appearance",
+        "dark_mode": "Dark Mode",
+        "interface_language": "Interface Language",
+        "save": "Save Settings",
+        "advanced": "Advanced Settings"
+    },
+    "common": {
+        "browse": "Browse",
+        "start": "Start Translation",
+        "cancel": "Cancel",
+        "ready": "Ready",
+        "processing": "Processing...",
+        "done": "Done",
+        "error": "Error",
+        "custom": "Custom..."
+    }
+}

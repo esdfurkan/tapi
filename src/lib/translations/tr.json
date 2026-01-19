@@ -1,0 +1,48 @@
+{
+  "app": {
+    "title": "TAPI Çeviri Aracı",
+    "subtitle": "Bir mod seçin ve çeviriye başlayın.",
+    "select_mode": "Mod Seçin",
+    "settings": "Ayarları Aç"
+  },
+  "modes": {
+    "cli": {
+      "title": "Klasör / CLI",
+      "desc": "Yerel bir klasördeki resimleri çevirin."
+    },
+    "archive": {
+      "title": "Arşiv",
+      "desc": "ZIP/CBZ/PDF dosyalarını çevirin."
+    },
+    "mangadex": {
+      "title": "MangaDex",
+      "desc": "MangaDex'ten indirin ve çevirin."
+    }
+  },
+  "headers": {
+    "folder_translation": "Klasör Çevirisi",
+    "archive_translation": "Arşiv Çevirisi",
+    "mangadex_downloader": "MangaDex İndirici"
+  },
+  "settings": {
+    "title": "Ayarlar",
+    "api_key": "API Anahtarı",
+    "model": "Model",
+    "font": "Yazı Tipi",
+    "appearance": "Görünüm",
+    "dark_mode": "Karanlık Mod",
+    "interface_language": "Arayüz Dili",
+    "save": "Ayarları Kaydet",
+    "advanced": "Gelişmiş Ayarlar"
+  },
+  "common": {
+    "browse": "Gözat",
+    "start": "Çeviriyi Başlat",
+    "cancel": "İptal",
+    "ready": "Hazır",
+    "processing": "İşleniyor...",
+    "done": "Tamamlandı",
+    "error": "Hata",
+    "custom": "Özel..."
+  }
+}

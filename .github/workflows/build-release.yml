@@ -1,0 +1,190 @@
+name: Build and Release
+
+on: [push]
+
+jobs:
+  build-and-release:
+    runs-on: my-ubuntu
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.13.0'
+
+      - name: Check and Install Rust
+        run: |
+          if ! command -v rustc &> /dev/null; then
+            echo "📥 Installing Rust..."
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            source $HOME/.cargo/env
+          else
+            echo "✅ Rust already installed"
+          fi
+          
+          # Add required targets
+          rustup target add x86_64-pc-windows-gnu aarch64-linux-android armv7-linux-androideabi aarch64-unknown-linux-gnu || true
+
+      - name: Prepare Environment and Dependencies
+        run: |
+          # 1. Configure Multi-Arch Mirrors for Ubuntu 24.04 (Noble)
+          sudo dpkg --add-architecture arm64
+          if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+            sudo sed -i '/^URIs: http:\/\/.*archive\.ubuntu\.com/a Architectures: amd64' /etc/apt/sources.list.d/ubuntu.sources
+            sudo sed -i '/^URIs: http:\/\/security\.ubuntu\.com/a Architectures: amd64' /etc/apt/sources.list.d/ubuntu.sources
+            sudo bash -c 'printf "Types: deb\nURIs: http://ports.ubuntu.com/ubuntu-ports\nSuites: noble noble-updates noble-backports noble-security\nComponents: main universe restricted multiverse\nArchitectures: arm64\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n" > /etc/apt/sources.list.d/ubuntu-ports.sources'
+          else
+            sudo sed -i 's/^deb /deb [arch=amd64] /g' /etc/apt/sources.list
+            sudo bash -c 'printf "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble main restricted universe multiverse\ndeb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-updates main restricted universe multiverse\ndeb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-security main restricted universe multiverse\n" > /etc/apt/sources.list.d/arm64-ports.list'
+          fi
+
+          # 2. Install Host Tools (Only tools, no arch-conflicting dev libs yet)
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            wget \
+            unzip \
+            file \
+            libssl-dev \
+            openjdk-21-jdk \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu \
+            libssl-dev:arm64
+
+      - name: Setup Android SDK
+        run: |
+          # Download and setup Android SDK
+          mkdir -p $HOME/Android/Sdk
+          cd $HOME/Android/Sdk
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip
+          unzip -q commandlinetools-linux-13114758_latest.zip
+          mkdir -p cmdline-tools/latest
+          mv cmdline-tools/* cmdline-tools/latest/ 2>/dev/null || true
+          
+          # Set environment variables
+          echo "ANDROID_HOME=$HOME/Android/Sdk" >> $GITHUB_ENV
+          echo "NDK_HOME=$HOME/Android/Sdk/ndk/27.3.13750724" >> $GITHUB_ENV
+          echo "$HOME/Android/Sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "$HOME/Android/Sdk/platform-tools" >> $GITHUB_PATH
+          
+          # Accept licenses and install NDK
+          export ANDROID_HOME=$HOME/Android/Sdk
+          export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$PATH
+          yes | sdkmanager --licenses || true
+          yes | sdkmanager "ndk;27.3.13750724" "platform-tools" "platforms;android-34" "build-tools;34.0.0" || true
+
+      - name: Install dependencies
+        run: yarn install
+
+      - name: Update Rust dependencies
+        run: |
+          cd src-tauri
+          cargo update
+
+      - name: Build all platforms (Sequential to avoid multi-arch conflicts)
+        run: |
+          export CI=true
+          export PREBUILT_FRONTEND=true
+          
+          # --- PHASE 1: Build x86_64, Windows, Android ---
+          echo "📥 Installing AMD64 and Windows dependencies..."
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
+            mingw-w64 nsis \
+            --no-install-recommends
+          
+          echo "🔨 Building x86_64, Windows, and Android..."
+          export ANDROID_HOME=$HOME/Android/Sdk
+          export NDK_HOME=$HOME/Android/Sdk/ndk/27.3.13750724
+          export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
+          bash scripts/build_all.sh --only-x86 --only-win --only-android
+
+          # --- PHASE 2: Swap Dependencies for ARM64 ---
+          echo "🔄 Swapping dependencies for ARM64..."
+          # Purge conflicting AMD64 dev packages and clean up
+          sudo apt-get purge -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
+          sudo apt-get autoremove -y
+          sudo apt-get install -y -f
+          
+          # Install ARM64 versions (surgical)
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev:arm64 \
+            libgtk-3-dev:arm64 \
+            libayatana-appindicator3-dev:arm64 \
+            librsvg2-dev:arm64 \
+            --no-install-recommends
+          
+          # --- PHASE 3: Build ARM64 ---
+          echo "🔨 Building ARM64..."
+          export PKG_CONFIG_ALLOW_CROSS=1
+          export PKG_CONFIG_PATH_aarch64_unknown_linux_gnu=/usr/lib/aarch64-linux-gnu/pkgconfig
+          bash scripts/build_all.sh --only-arm
+        continue-on-error: true
+
+      - name: Get current date
+        id: date
+        run: echo "date=$(date +'%Y-%m-%d_%H-%M')" >> $GITHUB_OUTPUT
+
+      - name: Collect build artifacts
+        run: |
+          mkdir -p release-artifacts
+          
+          # Linux builds
+          # Linux builds (recursive to include aarch64 and x86_64)
+          find src-tauri/target -name "*.deb" -path "*/bundle/*" -exec cp {} release-artifacts/ \; 2>/dev/null || true
+          find src-tauri/target -name "*.rpm" -path "*/bundle/*" -exec cp {} release-artifacts/ \; 2>/dev/null || true
+          find src-tauri/target -name "*.AppImage" -path "*/bundle/*" -exec cp {} release-artifacts/ \; 2>/dev/null || true
+          
+          # Windows builds
+          find src-tauri/target/x86_64-pc-windows-gnu/release/bundle -name "*.exe" -exec cp {} release-artifacts/ \; 2>/dev/null || true
+          find src-tauri/target/x86_64-pc-windows-gnu/release/bundle -name "*.msi" -exec cp {} release-artifacts/ \; 2>/dev/null || true
+          
+          # Android builds
+          find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" -exec cp {} release-artifacts/ \; 2>/dev/null || true
+          
+          echo "📦 Build Artifacts:"
+          ls -lh release-artifacts/ 2>/dev/null || echo "No artifacts found"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: tapi-build-${{ steps.date.outputs.date }}
+          path: release-artifacts/*
+        continue-on-error: true
+
+      - name: Create Release
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        uses: softprops/action-gh-release@v2.5.0
+        with:
+          tag_name: release-${{ steps.date.outputs.date }}
+          name: TAPI Build ${{ steps.date.outputs.date }}
+          body: |
+            ## TAPI Translation Tool
+            
+            **Build Date:** ${{ steps.date.outputs.date }}
+            **Commit:** ${{ github.sha }}
+            
+            ### Platforms
+            - 🐧 Linux (deb, rpm, AppImage)
+            - 🪟 Windows (exe, msi)
+            - 🤖 Android (apk)
+            
+            ### Installation
+            Download the appropriate file for your platform from the assets below.
+          draft: false
+          prerelease: false
+          files: release-artifacts/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Summary
+        run: |
+          echo "✅ Build completed - ${{ steps.date.outputs.date }}"
+          echo "📦 Artifacts ready for download"

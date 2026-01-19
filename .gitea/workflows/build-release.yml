@@ -1,0 +1,224 @@
+name: Build and Release (Gitea)
+
+on: [push]
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:24.04
+      options: --privileged
+    
+    steps:
+      - name: Install Node.js first
+        run: |
+          # Set timezone non-interactively
+          export DEBIAN_FRONTEND=noninteractive
+          ln -fs /usr/share/zoneinfo/UTC /etc/localtime
+          
+          apt-get update
+          apt-get install -y curl
+          curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
+          apt-get install -y nodejs
+          
+          # Install yarn
+          npm install -g yarn
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          for i in {1..3}; do
+            apt-get update && \
+            apt-get install -y \
+              libwebkit2gtk-4.1-dev \
+              libgtk-3-dev \
+              build-essential \
+              curl \
+              wget \
+              unzip \
+              file \
+              libssl-dev \
+              libayatana-appindicator3-dev \
+              librsvg2-dev \
+              mingw-w64 \
+              nsis \
+              jq \
+              openjdk-21-jdk && break
+            echo "Attempt $i failed, retrying..."
+            sleep 5
+          done
+          
+          echo "JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64" >> $GITHUB_ENV
+
+      - name: Check and Install Rust
+        shell: bash
+        run: |
+          if ! command -v rustc &> /dev/null; then
+            echo "📥 Installing Rust..."
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            . $HOME/.cargo/env
+            echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          else
+            echo "✅ Rust already installed"
+          fi
+          
+          # Add required targets
+          . $HOME/.cargo/env 2>/dev/null || true
+          rustup target add x86_64-pc-windows-gnu aarch64-linux-android armv7-linux-androideabi || true
+
+      - name: Setup Android SDK
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          
+          # Download and setup Android SDK
+          mkdir -p $HOME/Android/Sdk
+          cd $HOME/Android/Sdk
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip
+          unzip -q commandlinetools-linux-13114758_latest.zip
+          mkdir -p cmdline-tools/latest
+          mv cmdline-tools/* cmdline-tools/latest/ 2>/dev/null || true
+          
+          # Set environment variables
+          echo "ANDROID_HOME=$HOME/Android/Sdk" >> $GITHUB_ENV
+          echo "NDK_HOME=$HOME/Android/Sdk/ndk/27.3.13750724" >> $GITHUB_ENV
+          echo "$HOME/Android/Sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "$HOME/Android/Sdk/platform-tools" >> $GITHUB_PATH
+          
+          # Accept licenses and install NDK
+          export ANDROID_HOME=$HOME/Android/Sdk
+          export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$PATH
+          yes | sdkmanager --licenses || true
+          yes | sdkmanager "ndk;27.3.13750724" "platform-tools" "platforms;android-34" "build-tools;34.0.0" || true
+
+      - name: Install dependencies
+        run: yarn install
+
+      - name: Update Rust dependencies
+        shell: bash
+        run: |
+          . $HOME/.cargo/env 2>/dev/null || true
+          cd src-tauri
+          cargo update
+
+      - name: Build all platforms
+        shell: bash
+        run: |
+          . $HOME/.cargo/env 2>/dev/null || true
+          export CI=true
+          export PREBUILT_FRONTEND=true
+          export ANDROID_HOME=$HOME/Android/Sdk
+          export NDK_HOME=$HOME/Android/Sdk/ndk/27.3.13750724
+          export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
+          yarn build:all
+
+      - name: Get current date
+        id: date
+        run: echo "date=$(date +'%Y-%m-%d_%H-%M')" >> $GITHUB_OUTPUT
+
+      - name: Collect build artifacts
+        run: |
+          mkdir -p release-artifacts
+          
+          # Linux builds
+          find src-tauri/target/release/bundle -name "*.deb" -exec cp {} release-artifacts/ \; 2>/dev/null || true
+          find src-tauri/target/release/bundle -name "*.rpm" -exec cp {} release-artifacts/ \; 2>/dev/null || true
+          find src-tauri/target/release/bundle -name "*.AppImage" -exec cp {} release-artifacts/ \; 2>/dev/null || true
+          
+          # Windows builds
+          find src-tauri/target/x86_64-pc-windows-gnu/release/bundle -name "*.exe" -exec cp {} release-artifacts/ \; 2>/dev/null || true
+          find src-tauri/target/x86_64-pc-windows-gnu/release/bundle -name "*.msi" -exec cp {} release-artifacts/ \; 2>/dev/null || true
+          
+          # Android builds
+          find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" -exec cp {} release-artifacts/ \; 2>/dev/null || true
+          
+          echo "📦 Build Artifacts:"
+          ls -lh release-artifacts/ 2>/dev/null || echo "No artifacts found"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: tapi-build-${{ steps.date.outputs.date }}
+          path: release-artifacts/*
+
+      - name: Create Release
+        if: gitea.ref == 'refs/heads/main' || gitea.ref == 'refs/heads/master'
+        run: |
+          RELEASE_TAG="release-${{ steps.date.outputs.date }}"
+          RELEASE_NAME="TAPI Build ${{ steps.date.outputs.date }}"
+          
+          echo "Creating release: $RELEASE_NAME"
+          echo "Tag: $RELEASE_TAG"
+          
+          # Create release using Gitea API (save to file to avoid shell escaping issues)
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.RELEASE_WORK }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"tag_name\": \"$RELEASE_TAG\",
+              \"name\": \"$RELEASE_NAME\",
+              \"body\": \"## TAPI Translation Tool\\n\\n**Build Date:** ${{ steps.date.outputs.date }}\\n**Commit:** ${{ gitea.sha }}\\n\\n### Platforms\\n- 🐧 Linux (deb, rpm, AppImage)\\n- 🪟 Windows (exe, msi)\\n- 🤖 Android (apk)\\n\\n### Installation\\nDownload the appropriate file for your platform from the assets below.\",
+              \"draft\": false,
+              \"prerelease\": false
+            }" \
+            "${{ gitea.api_url }}/repos/${{ gitea.repository }}/releases" -o response.json
+
+          # Check if curl failed
+          if [ $? -ne 0 ]; then
+            echo "❌ Failed to create release request"
+            exit 1
+          fi
+
+          echo "Release response:"
+          cat response.json
+          
+          # Extract release ID using jq from file
+          RELEASE_ID=$(jq -r .id response.json)
+          
+          if [ "$RELEASE_ID" != "null" ] && [ -n "$RELEASE_ID" ]; then
+            echo "✅ Release created with ID: $RELEASE_ID"
+            
+            # Check if there are artifacts to upload
+            if [ -z "$(ls -A release-artifacts/)" ]; then
+               echo "⚠️ No artifacts found in release-artifacts/"
+               exit 0
+            fi
+
+            # Upload each artifact to the release
+            for file in release-artifacts/*; do
+              if [ -f "$file" ]; then
+                filename=$(basename "$file")
+                echo "Uploading $filename..."
+                curl -f -X POST \
+                  -H "Authorization: token ${{ secrets.RELEASE_WORK }}" \
+                  -H "Content-Type: application/octet-stream" \
+                  --data-binary "@$file" \
+                  "${{ gitea.api_url }}/repos/${{ gitea.repository }}/releases/$RELEASE_ID/assets?name=$filename"
+                
+                if [ $? -eq 0 ]; then
+                  echo "✅ Uploaded $filename"
+                else
+                  echo "❌ Failed to upload $filename"
+                  # Don't exit here, try to upload other files
+                fi
+              fi
+            done
+            
+            echo "🎉 Release process finished!"
+          else
+            echo "❌ Failed to create release. Check logs above."
+            exit 1
+          fi
+
+      - name: Job Summary
+        run: |
+          echo "🎉 Build completed!"
+          echo "📅 Date: ${{ steps.date.outputs.date }}"
+          echo "🔨 Commit: ${{ gitea.sha }}"
+          echo "📦 Artifacts uploaded"
+          echo "🍏 Status: ${{ job.status }}"
+          echo "✅ Release created with ID: $RELEASE_ID "
+          
+

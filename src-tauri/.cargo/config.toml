@@ -1,0 +1,14 @@
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"
+ar = "x86_64-w64-mingw32-ar"
+
+[target.i686-pc-windows-gnu]
+linker = "i686-w64-mingw32-gcc"
+ar = "i686-w64-mingw32-ar"
+
+# Android optimizations - only build necessary architectures
+[target.aarch64-linux-android]
+strip = { path = "aarch64-linux-android-strip" }
+
+[target.armv7-linux-androideabi]
+strip = { path = "arm-linux-androideabi-strip" }
