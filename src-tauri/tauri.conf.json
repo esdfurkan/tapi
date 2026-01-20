@@ -22,15 +22,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "deb",
-      "rpm",
-      "appimage",
-      "nsis",
-      "msi",
-      "dmg",
-      "macos"
-    ],
+    "targets": "all",
     "windows": {
       "wix": {
         "language": [
