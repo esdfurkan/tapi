@@ -118,10 +118,12 @@ jobs:
           mkdir -p cmdline-tools/latest
           mv cmdline-tools/* cmdline-tools/latest/ 2>/dev/null || true
           echo "ANDROID_HOME=$HOME/Android/Sdk" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$HOME/Android/Sdk" >> $GITHUB_ENV
           echo "NDK_HOME=$HOME/Android/Sdk/ndk/27.3.13750724" >> $GITHUB_ENV
           echo "$HOME/Android/Sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
           echo "$HOME/Android/Sdk/platform-tools" >> $GITHUB_PATH
           export ANDROID_HOME=$HOME/Android/Sdk
+          export ANDROID_SDK_ROOT=$HOME/Android/Sdk
           export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$PATH
           yes | sdkmanager --licenses || true
           yes | sdkmanager "ndk;27.3.13750724" "platform-tools" "platforms;android-34" "build-tools;34.0.0" || true
@@ -139,6 +141,7 @@ jobs:
           CI: true
           PREBUILT_FRONTEND: "true"
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_HOME }}
           NDK_HOME: ${{ env.NDK_HOME }}
       - name: Collect Android artifacts
         run: |
