@@ -1,0 +1,215 @@
+name: Build and Release Unified
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  build-desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: linux-x64
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            platform: linux-arm64
+            target: aarch64-unknown-linux-gnu
+          - runner: windows-latest
+            platform: windows-x64
+            target: x86_64-pc-windows-msvc
+          - runner: windows-11-arm
+            platform: windows-arm64
+            target: aarch64-pc-windows-msvc
+
+    runs-on: ${{ matrix.runner }}
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install system dependencies (Linux Only)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev
+
+      - name: Install dependencies
+        run: yarn install
+
+      - name: Update Rust dependencies
+        run: |
+          cd src-tauri
+          cargo update
+
+      - name: Build Tauri App
+        run: |
+          yarn build
+          yarn tauri build --target ${{ matrix.target }}
+        env:
+          CI: true
+          PREBUILT_FRONTEND: "true"
+
+      - name: Collect build artifacts
+        shell: bash
+        run: |
+          mkdir -p staging
+          if [ "${{ runner.os }}" == "Windows" ]; then
+            find src-tauri/target/${{ matrix.target }}/release/bundle -type f \( -name "*.exe" -o -name "*.msi" \) -exec cp {} staging/ \;
+          else
+            find src-tauri/target/${{ matrix.target }}/release/bundle -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) -exec cp {} staging/ \;
+          fi
+          cd staging
+          for f in *; do mv "$f" "${{ matrix.platform }}-$f"; done
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-${{ matrix.platform }}
+          path: staging/*
+
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+      - name: Setup Android SDK
+        run: |
+          mkdir -p $HOME/Android/Sdk
+          cd $HOME/Android/Sdk
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip
+          unzip -q commandlinetools-linux-13114758_latest.zip
+          mkdir -p cmdline-tools/latest
+          mv cmdline-tools/* cmdline-tools/latest/ 2>/dev/null || true
+          echo "ANDROID_HOME=$HOME/Android/Sdk" >> $GITHUB_ENV
+          echo "NDK_HOME=$HOME/Android/Sdk/ndk/27.3.13750724" >> $GITHUB_ENV
+          echo "$HOME/Android/Sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "$HOME/Android/Sdk/platform-tools" >> $GITHUB_PATH
+          export ANDROID_HOME=$HOME/Android/Sdk
+          export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$PATH
+          yes | sdkmanager --licenses || true
+          yes | sdkmanager "ndk;27.3.13750724" "platform-tools" "platforms;android-34" "build-tools;34.0.0" || true
+      - name: Install dependencies
+        run: yarn install
+      - name: Build Android
+        run: |
+          yarn build
+          if [ -f "scripts/android_build.sh" ]; then
+            bash scripts/android_build.sh
+          else
+            yarn tauri android build
+          fi
+        env:
+          CI: true
+          PREBUILT_FRONTEND: "true"
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          NDK_HOME: ${{ env.NDK_HOME }}
+      - name: Collect Android artifacts
+        run: |
+          mkdir -p staging
+          find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" -exec cp {} staging/ \;
+          cd staging
+          for f in *; do mv "$f" "android-$f"; done
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-android
+          path: staging/*
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - name: Install dependencies
+        run: yarn install
+      - name: Build macOS (Universal)
+        run: |
+          yarn build
+          yarn tauri build --target universal-apple-darwin
+        env:
+          CI: true
+          PREBUILT_FRONTEND: "true"
+      - name: Collect macOS artifacts
+        run: |
+          mkdir -p staging
+          # In Tauri v2, universal bundles might be in a slightly different path or naming
+          find src-tauri/target/universal-apple-darwin/release/bundle -type f \( -name "*.dmg" -o -name "*.app.tar.gz" \) -exec cp {} staging/ \;
+          cd staging
+          for f in *; do mv "$f" "macos-$f"; done
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-macos
+          path: staging/*
+
+  create-release:
+    permissions:
+      contents: write
+    needs: [build-desktop, build-android, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get current date
+        id: date
+        run: echo "date=$(date +'%Y-%m-%d_%H-%M')" >> $GITHUB_OUTPUT
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-artifacts
+          pattern: artifacts-*
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -R all-artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: release-${{ steps.date.outputs.date }}
+          name: TAPI Build ${{ steps.date.outputs.date }}
+          files: all-artifacts/*
+          draft: false
+          prerelease: false
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
