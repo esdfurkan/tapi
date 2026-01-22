@@ -23,6 +23,7 @@ pub struct TranslationOptions {
     pub profile: Option<Arc<Mutex<Profile>>>,
     pub endpoints: Option<ApiEndpoints>,
     pub included_paths: Option<Vec<String>>,
+    pub db: Option<Arc<Mutex<Option<crate::core::database::DatabaseManager>>>>,
 }
 
 fn get_model_cost(model: &str) -> u64 {
@@ -147,6 +148,20 @@ pub async fn process_directory(logger: &impl ProgressLogger, input_dir: &Path, o
     let _total_to_hash = pending_images.len();
     let mut processed_hash_count = 0;
 
+    // Check DB for existing hashes if available
+    let mut db_existing_hashes = HashSet::new();
+    if let Some(ref db_mutex) = options.db {
+        if let Ok(db_lock) = db_mutex.lock() {
+            if let Some(db) = db_lock.as_ref() {
+                if let Ok(entries) = db.list_all().await {
+                    for entry in entries {
+                        db_existing_hashes.insert(entry.hash);
+                    }
+                }
+            }
+        }
+    }
+
     for img_path in pending_images {
         // Manage concurrency
         log_debug(&format!("Queueing hash for: {:?}", img_path));
@@ -155,7 +170,7 @@ pub async fn process_directory(logger: &impl ProgressLogger, input_dir: &Path, o
                 if let Ok(Ok((path, hash))) = res {
                      log_debug(&format!("Joined hash task: {:?}", path));
                      processed_hash_count += 1;
-                     if history.contains(&hash) {
+                     if history.contains(&hash) || db_existing_hashes.contains(&hash) {
                          skipped_count += 1;
                      } else {
                          // Calculate output path again here to pass it down
@@ -191,7 +206,7 @@ pub async fn process_directory(logger: &impl ProgressLogger, input_dir: &Path, o
         if let Ok(Ok((path, hash))) = res {
              log_debug(&format!("Joined remaining hash task: {:?}", path));
              //processed_hash_count += 1;
-             if history.contains(&hash) {
+             if history.contains(&hash) || db_existing_hashes.contains(&hash) {
                   skipped_count += 1;
              } else {
                   let relative_path = path.strip_prefix(input_dir).unwrap_or_else(|_| path.file_name().map(Path::new).unwrap_or(Path::new("unknown"))).to_path_buf();
@@ -300,6 +315,27 @@ async fn process_individual(
                     // Update history
                     if !hash.is_empty() {
                         history.insert(hash.clone());
+                        
+                        // ALSO Save to Database for centralized history
+                        if let Some(ref db_mutex) = options.db {
+                            if let Ok(db_lock) = db_mutex.lock() {
+                                if let Some(db) = db_lock.as_ref() {
+                                    let name = img_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                                    // Get the immediate folder name for grouping
+                                    let folder_name = img_path.parent()
+                                        .and_then(|p| p.file_name())
+                                        .map(|n| n.to_string_lossy().to_string())
+                                        .unwrap_or_else(|| "Root".to_string());
+                                    
+                                    let db_clone = db.clone();
+                                    let hash_clone = hash.clone();
+                                    tokio::spawn(async move {
+                                        let _ = db_clone.save_hash(hash_clone, name, folder_name).await;
+                                    });
+                                }
+                            }
+                        }
+
                         processed_for_save += 1;
                         // Batch saves to disk to prevent IO overload
                         if processed_for_save >= 10 {

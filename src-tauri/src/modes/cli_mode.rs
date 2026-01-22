@@ -18,6 +18,7 @@ pub async fn start_cli_translation(
     inpaint_only: bool,
     min_font_size: u32,
     profile: Option<Arc<Mutex<Profile>>>,
+    db: Option<Arc<Mutex<Option<crate::core::database::DatabaseManager>>>>,
     output_folder: Option<String>,
     included_paths: Option<Vec<String>>
 ) -> Result<()> {
@@ -59,6 +60,7 @@ pub async fn start_cli_translation(
         profile,
         endpoints,
         included_paths,
+        db,
     };
 
     process_directory(logger, folder, &output_dir, &options).await?;

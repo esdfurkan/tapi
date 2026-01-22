@@ -12,6 +12,7 @@
   interface HashEntry {
     hash: string;
     name: string;
+    folder: string;
     created_at: string;
   }
 
@@ -20,6 +21,7 @@
   let searchTerm = "";
   let editingHash: string | null = null;
   let editingName = "";
+  let editingFolder = "";
 
   // Configuration
   let databaseMode = "off"; // off, local, remote
@@ -121,12 +123,13 @@
   function startEditing(entry: HashEntry) {
     editingHash = entry.hash;
     editingName = entry.name;
+    editingFolder = entry.folder;
   }
 
   async function saveEdit() {
     if (!editingHash) return;
     try {
-      await api.command('save_hash_name', { hash: editingHash, name: editingName });
+      await api.command('save_hash_name', { hash: editingHash, name: editingName, folder: editingFolder });
       editingHash = null;
       await loadEntries();
     } catch (e) {
@@ -136,8 +139,27 @@
 
   $: filteredEntries = entries.filter(e => 
     e.hash.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    e.name.toLowerCase().includes(searchTerm.toLowerCase())
+    e.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    e.folder.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  $: groupedEntries = filteredEntries.reduce((acc, entry) => {
+    const folder = entry.folder || "Root";
+    if (!acc[folder]) acc[folder] = [];
+    acc[folder].push(entry);
+    return acc;
+  }, {} as Record<string, HashEntry[]>);
+
+  let expandedFolders = new Set<string>();
+
+  function toggleFolder(folder: string) {
+    if (expandedFolders.has(folder)) {
+      expandedFolders.delete(folder);
+    } else {
+      expandedFolders.add(folder);
+    }
+    expandedFolders = expandedFolders; // trigger update
+  }
 
   let connectionStatus: 'idle' | 'testing' | 'success' | 'error' = 'idle';
   let connectionMessage = "";
@@ -364,51 +386,98 @@
         </div>
     </div>
 
-    <!-- Main Content Table -->
-    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl overflow-hidden shadow-sm">
-        <div class="overflow-x-auto">
-            <table class="w-full text-left">
-                <thead class="bg-gray-50/50 dark:bg-gray-800/50 text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                    <tr>
-                        <th class="px-8 py-4">Identity / Name</th>
-                        <th class="px-8 py-4">System Hash</th>
-                        <th class="px-8 py-4 w-20 text-right">Actions</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
-                    {#each filteredEntries as entry (entry.hash)}
-                        <tr class="group hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
-                            <td class="px-8 py-6">
-                                {#if editingHash === entry.hash}
-                                    <div class="flex items-center gap-2">
-                                        <input 
-                                          type="text" bind:value={editingName} 
-                                          class="flex-1 bg-white dark:bg-gray-900 border border-blue-500 rounded-lg px-3 py-1.5 text-sm dark:text-white outline-none"
-                                          on:keydown={e => e.key === 'Enter' && saveEdit()}
-                                        />
-                                        <button on:click={saveEdit} class="text-green-500 p-1.5 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg"><Check size={18} /></button>
-                                        <button on:click={() => editingHash = null} class="text-red-400 p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg"><X size={18} /></button>
-                                    </div>
-                                {:else}
-                                    <div class="flex items-center gap-3">
-                                        <span class="font-bold text-gray-900 dark:text-white">{entry.name}</span>
-                                        <button on:click={() => startEditing(entry)} class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-500 transition-all"><Edit2 size={14} /></button>
-                                    </div>
-                                {/if}
-                            </td>
-                            <td class="px-8 py-6">
-                                <div class="flex items-center gap-2 text-[10px] font-mono text-gray-400 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-800 px-2 py-1 rounded-lg w-fit">
-                                    <Hash size={10} /> {entry.hash}
-                                </div>
-                            </td>
-                            <td class="px-8 py-6 text-right">
-                                <button on:click={() => deleteEntry(entry.hash)} class="text-gray-300 hover:text-red-500 transition-colors"><Trash2 size={18} /></button>
-                            </td>
-                        </tr>
-                    {/each}
-                </tbody>
-            </table>
-        </div>
+    <!-- Main Content Tree View -->
+    <div class="space-y-4">
+        {#each Object.entries(groupedEntries) as [folder, folderEntries]}
+            <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl overflow-hidden shadow-sm">
+                <!-- Folder Header -->
+                <button 
+                  on:click={() => toggleFolder(folder)}
+                  class="w-full flex items-center justify-between px-6 py-4 bg-gray-50/50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                >
+                    <div class="flex items-center gap-3">
+                        <div class="p-2 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-xl">
+                            <RefreshCw size={16} class={expandedFolders.has(folder) ? 'rotate-180 transition-transform' : 'transition-transform'} />
+                        </div>
+                        <div class="text-left">
+                            <span class="text-xs font-black text-gray-400 uppercase tracking-widest block">Collection</span>
+                            <span class="font-bold text-gray-900 dark:text-white">{folder}</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <span class="text-[10px] font-black text-blue-500 bg-blue-50 dark:bg-blue-900/20 px-2 py-0.5 rounded-lg border border-blue-100 dark:border-blue-900/30">
+                            {folderEntries.length} ITEMS
+                        </span>
+                        <div class="text-gray-400">
+                            {#if expandedFolders.has(folder)}
+                                <X size={20} />
+                            {:else}
+                                <Settings2 size={20} />
+                            {/if}
+                        </div>
+                    </div>
+                </button>
+
+                <!-- Folder Files -->
+                {#if expandedFolders.has(folder)}
+                    <div transition:slide>
+                        <table class="w-full text-left">
+                            <thead class="bg-gray-50/30 dark:bg-gray-800/20 text-[10px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 dark:border-gray-800">
+                                <tr>
+                                    <th class="px-8 py-3">File Name</th>
+                                    <th class="px-8 py-3">Fingerprint</th>
+                                    <th class="px-8 py-3 w-20 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+                                {#each folderEntries as entry (entry.hash)}
+                                    <tr class="group hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
+                                        <td class="px-8 py-4">
+                                            {#if editingHash === entry.hash}
+                                                <div class="flex items-center gap-2">
+                                                    <input 
+                                                      type="text" bind:value={editingName} 
+                                                      class="flex-1 bg-white dark:bg-gray-900 border border-blue-500 rounded-lg px-3 py-1.5 text-sm dark:text-white outline-none"
+                                                      on:keydown={e => e.key === 'Enter' && saveEdit()}
+                                                    />
+                                                    <button on:click={saveEdit} class="text-green-500 p-1.5 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg"><Check size={18} /></button>
+                                                    <button on:click={() => editingHash = null} class="text-red-400 p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg"><X size={18} /></button>
+                                                </div>
+                                            {:else}
+                                                <div class="flex items-center gap-3">
+                                                    <span class="font-bold text-gray-900 dark:text-white text-sm">{entry.name}</span>
+                                                    <button on:click={() => startEditing(entry)} class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-500 transition-all"><Edit2 size={14} /></button>
+                                                </div>
+                                            {/if}
+                                        </td>
+                                        <td class="px-8 py-4">
+                                            <div class="flex items-center gap-2 text-[10px] font-mono text-gray-400 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-800 px-2 py-1 rounded-lg w-fit">
+                                                <Hash size={10} /> {entry.hash}
+                                            </div>
+                                        </td>
+                                        <td class="px-8 py-4 text-right">
+                                            <button on:click={() => deleteEntry(entry.hash)} class="text-gray-300 hover:text-red-500 transition-colors"><Trash2 size={18} /></button>
+                                        </td>
+                                    </tr>
+                                {/each}
+                            </tbody>
+                        </table>
+                    </div>
+                {/if}
+            </div>
+        {:else}
+            <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-12 text-center" transition:fade>
+                <div class="flex flex-col items-center justify-center space-y-4 opacity-40">
+                    <div class="bg-gray-100 dark:bg-gray-800 p-6 rounded-3xl">
+                        <Hash size={48} />
+                    </div>
+                    <div>
+                        <p class="text-lg font-bold text-gray-900 dark:text-white">No mappings found</p>
+                        <p class="text-sm text-gray-500 max-w-xs mx-auto">Start a translation to see files organized by their folders here.</p>
+                    </div>
+                </div>
+            </div>
+        {/each}
     </div>
   {/if}
 </div>

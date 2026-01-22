@@ -129,6 +129,7 @@ async fn save_settings(
 struct SaveHashRequest {
     hash: String,
     name: String,
+    folder: String,
 }
 
 async fn save_hash_name(
@@ -141,7 +142,7 @@ async fn save_hash_name(
     };
 
     if let Some(db) = db {
-        match db.save_hash(req.hash, req.name).await {
+        match db.save_hash(req.hash, req.name, req.folder).await {
             Ok(_) => StatusCode::OK.into_response(),
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
         }

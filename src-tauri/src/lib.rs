@@ -80,6 +80,7 @@ pub fn run() {
             commands::database::clear_all_database,
             commands::database::pull_remote_database,
             commands::database::push_remote_database,
+            commands::database::test_database_connection,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

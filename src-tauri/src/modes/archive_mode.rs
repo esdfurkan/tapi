@@ -22,6 +22,7 @@ pub async fn start_archive_translation(
     inpaint_only: bool,
     min_font_size: u32,
     profile: Option<Arc<Mutex<Profile>>>,
+    db: Option<Arc<Mutex<Option<crate::core::database::DatabaseManager>>>>,
     output_folder: Option<String>,
     included_paths: Option<Vec<String>>
 ) -> Result<()> {
@@ -107,6 +108,7 @@ pub async fn start_archive_translation(
                         profile: profile.clone(),
                         endpoints: endpoints.clone(),
                         included_paths: included_paths.clone(), // Pass down for fine-grained image filtering
+                        db: db.clone(),
                     };
                     
                     if let Err(e) = process_directory(logger, &temp_dir, &temp_out, &options).await {

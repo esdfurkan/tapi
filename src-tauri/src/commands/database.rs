@@ -3,7 +3,7 @@ use crate::core::database::HashEntryOutput;
 use tauri::{command, State};
 
 #[command]
-pub async fn save_hash_name(state: State<'_, AppState>, hash: String, name: String) -> Result<(), String> {
+pub async fn save_hash_name(state: State<'_, AppState>, hash: String, name: String, folder: String) -> Result<(), String> {
     let mode = {
         let profile = state.profile.lock().unwrap();
         profile.database_mode.clone()
@@ -17,7 +17,7 @@ pub async fn save_hash_name(state: State<'_, AppState>, hash: String, name: Stri
         let db_lock = state.db.lock().unwrap();
         db_lock.clone().ok_or("Database not initialized")?
     };
-    db.save_hash(hash, name).await.map_err(|e: anyhow::Error| e.to_string())
+    db.save_hash(hash, name, folder).await.map_err(|e: anyhow::Error| e.to_string())
 }
 
 #[command]

@@ -38,15 +38,16 @@ pub async fn start_translation(
     let min_size = min_font_size.unwrap_or(12);
     
     let profile_state = Some(state.profile.clone());
+    let db_state = Some(state.db.clone());
 
     match mode_str.as_str() {
         "archive" => {
-            start_archive_translation(&window, path, &model, &api_key, &t_lang, &font_str, &txt_align, stroke, inpaint, min_size, profile_state, output_folder, included_paths)
+            start_archive_translation(&window, path, &model, &api_key, &t_lang, &font_str, &txt_align, stroke, inpaint, min_size, profile_state, db_state, output_folder, included_paths)
                 .await
                 .map_err(|e| e.to_string())?;
         },
         _ => {
-            start_cli_translation(&window, path, &model, &api_key, &t_lang, &font_str, &txt_align, stroke, inpaint, min_size, profile_state, output_folder, included_paths)
+            start_cli_translation(&window, path, &model, &api_key, &t_lang, &font_str, &txt_align, stroke, inpaint, min_size, profile_state, db_state, output_folder, included_paths)
                 .await
                 .map_err(|e| e.to_string())?;
         }

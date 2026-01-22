@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 pub struct HashEntry {
     pub hash: String,
     pub name: String,
+    pub folder: String,
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
@@ -19,6 +20,7 @@ pub struct HashEntry {
 pub struct HashEntryOutput {
     pub hash: String,
     pub name: String,
+    pub folder: String,
     pub created_at: String,
 }
 
@@ -34,12 +36,13 @@ impl DatabaseManager {
         Ok(Self { db })
     }
 
-    pub async fn save_hash(&self, hash: String, name: String) -> Result<()> {
+    pub async fn save_hash(&self, hash: String, name: String, folder: String) -> Result<()> {
         let _: Option<HashEntry> = self.db
             .upsert(("file_hashes", &hash))
             .content(HashEntry {
                 hash,
                 name,
+                folder,
                 created_at: Some(chrono::Utc::now()),
             })
             .await?;
@@ -58,6 +61,7 @@ impl DatabaseManager {
         Ok(entries.into_iter().map(|e| HashEntryOutput {
             hash: e.hash,
             name: e.name,
+            folder: e.folder,
             created_at: e.created_at.map(|c| c.to_rfc3339()).unwrap_or_default(),
         }).collect())
     }
@@ -113,15 +117,13 @@ impl DatabaseManager {
         remote_db.use_ns("tapi").use_db("main").await?;
 
         if is_push {
-            let _ = remote_db
-                .query("INSERT INTO file_hashes $entries ON DUPLICATE KEY UPDATE name = $after.name, created_at = $after.created_at")
+                .query("INSERT INTO file_hashes $entries ON DUPLICATE KEY UPDATE name = $after.name, folder = $after.folder, created_at = $after.created_at")
                 .bind(("entries", local_entries))
                 .await?;
         } else {
             let remote_entries: Vec<HashEntry> = remote_db.select("file_hashes").await?;
             if !remote_entries.is_empty() {
-                let _ = self.db
-                    .query("INSERT INTO file_hashes $entries ON DUPLICATE KEY UPDATE name = $after.name, created_at = $after.created_at")
+                    .query("INSERT INTO file_hashes $entries ON DUPLICATE KEY UPDATE name = $after.name, folder = $after.folder, created_at = $after.created_at")
                     .bind(("entries", remote_entries))
                     .await?;
             }
