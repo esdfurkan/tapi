@@ -1,5 +1,6 @@
 use crate::config::{language::Language, profile::Profile};
 use crate::core::database::DatabaseManager;
+use std::sync::{Arc, Mutex};
 
 pub struct AppState {
     #[allow(dead_code)]

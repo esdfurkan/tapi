@@ -29,7 +29,7 @@ pub fn run() {
                 if profile_path.exists() {
                     if let Ok(profile) = crate::config::profile::Profile::load(&profile_path) {
                          let state = handle.state::<AppState>();
-                         let mut lock = state.profile.lock().unwrap_or_else(|e| e.into_inner());
+                         let mut lock = state.profile.lock().unwrap_or_else(|e: std::sync::PoisonError<_>| e.into_inner());
                          *lock = profile;
                     }
                 }
@@ -53,7 +53,7 @@ pub fn run() {
                 tauri::async_runtime::block_on(async move {
                     if let Ok(db_manager) = crate::core::database::DatabaseManager::new(db_path).await {
                         let state = handle_clone.state::<AppState>();
-                        let mut db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
+                        let mut db_lock = state.db.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string()).unwrap();
                         *db_lock = Some(db_manager);
                     }
                 });

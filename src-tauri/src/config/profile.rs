@@ -77,6 +77,11 @@ impl Default for Profile {
             storage_headers: String::new(),
             ocr_headers: String::new(),
             save_debug_json: false,
+            database_mode: default_db_mode(),
+            remote_db_url: String::new(),
+            remote_db_token: String::new(),
+            remote_db_user: String::new(),
+            remote_db_pass: String::new(),
         }
     }
 }

@@ -17,49 +17,49 @@ pub async fn save_hash_name(state: State<'_, AppState>, hash: String, name: Stri
         let db_lock = state.db.lock().unwrap();
         db_lock.clone().ok_or("Database not initialized")?
     };
-    db.save_hash(hash, name).await.map_err(|e| e.to_string())
+    db.save_hash(hash, name).await.map_err(|e: anyhow::Error| e.to_string())
 }
 
 #[command]
 pub async fn get_name_by_hash(state: State<'_, AppState>, hash: String) -> Result<Option<String>, String> {
     let db = {
-        let db_lock = state.db.lock().unwrap();
+        let db_lock = state.db.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
         db_lock.clone().ok_or("Database not initialized")?
     };
-    db.get_name(&hash).await.map_err(|e| e.to_string())
+    db.get_name(&hash).await.map_err(|e: anyhow::Error| e.to_string())
 }
 
 #[command]
 pub async fn list_hash_names(state: State<'_, AppState>) -> Result<Vec<HashEntryOutput>, String> {
     let db = {
-        let db_lock = state.db.lock().unwrap();
+        let db_lock = state.db.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
         db_lock.clone().ok_or("Database not initialized")?
     };
-    db.list_all().await.map_err(|e| e.to_string())
+    db.list_all().await.map_err(|e: anyhow::Error| e.to_string())
 }
 
 #[command]
 pub async fn delete_hash_entry(state: State<'_, AppState>, hash: String) -> Result<(), String> {
     let db = {
-        let db_lock = state.db.lock().unwrap();
+        let db_lock = state.db.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
         db_lock.clone().ok_or("Database not initialized")?
     };
-    db.delete_hash(&hash).await.map_err(|e| e.to_string())
+    db.delete_hash(&hash).await.map_err(|e: anyhow::Error| e.to_string())
 }
 
 #[command]
 pub async fn clear_all_database(state: State<'_, AppState>) -> Result<(), String> {
     let db = {
-        let db_lock = state.db.lock().unwrap();
+        let db_lock = state.db.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
         db_lock.clone().ok_or("Database not initialized")?
     };
-    db.clear_all().await.map_err(|e| e.to_string())
+    db.clear_all().await.map_err(|e: anyhow::Error| e.to_string())
 }
 
 #[command]
 pub async fn pull_remote_database(state: State<'_, AppState>) -> Result<(), String> {
     let (url, token, user, pass) = {
-        let profile = state.profile.lock().unwrap();
+        let profile = state.profile.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
         if profile.database_mode != "remote" {
             return Err("Not in remote mode".to_string());
         }
@@ -70,17 +70,17 @@ pub async fn pull_remote_database(state: State<'_, AppState>) -> Result<(), Stri
     };
 
     let db = {
-        let db_lock = state.db.lock().unwrap();
+        let db_lock = state.db.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
         db_lock.clone().ok_or("Database not initialized")?
     };
 
-    db.pull_from_remote(&url, &token, &user, &pass).await.map_err(|e| e.to_string())
+    db.pull_from_remote(&url, &token, &user, &pass).await.map_err(|e: anyhow::Error| e.to_string())
 }
 
 #[command]
 pub async fn push_remote_database(state: State<'_, AppState>) -> Result<(), String> {
     let (url, token, user, pass) = {
-        let profile = state.profile.lock().unwrap();
+        let profile = state.profile.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
         if profile.database_mode != "remote" {
             return Err("Not in remote mode".to_string());
         }
@@ -91,9 +91,9 @@ pub async fn push_remote_database(state: State<'_, AppState>) -> Result<(), Stri
     };
 
     let db = {
-        let db_lock = state.db.lock().unwrap();
+        let db_lock = state.db.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
         db_lock.clone().ok_or("Database not initialized")?
     };
 
-    db.push_to_remote(&url, &token, &user, &pass).await.map_err(|e| e.to_string())
+    db.push_to_remote(&url, &token, &user, &pass).await.map_err(|e: anyhow::Error| e.to_string())
 }

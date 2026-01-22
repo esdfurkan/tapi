@@ -34,6 +34,6 @@ pub fn save_settings(app: AppHandle, state: State<AppState>, settings: Profile) 
 #[tauri::command]
 pub fn load_settings(state: State<AppState>) -> Result<Profile, String> {
     // Just return what's in memory (which was populated at startup)
-    let profile = state.profile.lock().map_err(|e| e.to_string())?;
+    let profile = state.profile.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
     Ok(profile.clone())
 }

@@ -1,5 +1,5 @@
 use surrealdb::engine::local::Db;
-use surrealdb::engine::local::Surrealkv;
+use surrealdb::engine::local::SurrealKV;
 use surrealdb::engine::remote::http::Http;
 use surrealdb::engine::remote::ws::Ws;
 use surrealdb::opt::auth::Root;
@@ -29,7 +29,7 @@ pub struct DatabaseManager {
 
 impl DatabaseManager {
     pub async fn new(path: PathBuf) -> Result<Self> {
-        let db = Surreal::new::<Surrealkv>(path.to_str().unwrap()).await?;
+        let db: Surreal<Db> = Surreal::new::<SurrealKV>(path.to_str().unwrap()).await?;
         db.use_ns("tapi").use_db("main").await?;
         Ok(Self { db })
     }
@@ -104,7 +104,10 @@ impl DatabaseManager {
         if !token.is_empty() {
             remote_db.authenticate(token).await?;
         } else if !user.is_empty() && !pass.is_empty() {
-            remote_db.signin(Root { user, pass }).await?;
+            remote_db.signin(Root { 
+                username: user, 
+                password: pass 
+            }).await?;
         }
 
         remote_db.use_ns("tapi").use_db("main").await?;
