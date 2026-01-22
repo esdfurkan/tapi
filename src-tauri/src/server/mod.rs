@@ -12,7 +12,7 @@ use tapi_lib::utils::logger::ProgressLogger;
 use tokio::sync::broadcast;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use crate::core::database::{DatabaseManager, HashEntryOutput};
+use tapi_lib::core::database::{DatabaseManager, HashEntryOutput};
 
 #[derive(RustEmbed)]
 #[folder = "../build/"] // Svelte build output
@@ -70,6 +70,7 @@ pub async fn start_server(port: u16, host: &str) {
         .route("/api/database/push", post(push_remote_database))
         .route("/api/database/test", post(test_database_connection))
         .route("/api/translate/cli", post(start_cli))
+        .fallback(static_handler)
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -93,7 +94,6 @@ async fn static_handler(uri: axum::http::Uri) -> impl IntoResponse {
             if path.contains('.') {
                 return StatusCode::NOT_FOUND.into_response();
             }
-            // SPA fallback - avoid recursion by calling explicitly for index.html content
             match Assets::get("index.html") {
                  Some(content) => {
                      let mime = mime_guess::from_path("index.html").first_or_octet_stream();
@@ -105,8 +105,6 @@ async fn static_handler(uri: axum::http::Uri) -> impl IntoResponse {
     }
 }
 
-// Handlers implementation needed here...
-// Simplified placeholders for now to fit context limit
 async fn status_handler() -> impl IntoResponse {
     "SSE/WebSocket placeholder" 
 }
@@ -137,8 +135,8 @@ async fn save_hash_name(
     axum::extract::State(state): axum::extract::State<AppState>,
     Json(req): Json<SaveHashRequest>
 ) -> impl IntoResponse {
-    let db = state.db.lock().unwrap();
-    if let Some(db) = db.as_ref() {
+    let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
+    if let Some(db) = db_lock.as_ref() {
         match db.save_hash(req.hash, req.name).await {
             Ok(_) => StatusCode::OK.into_response(),
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
@@ -151,10 +149,10 @@ async fn save_hash_name(
 async fn list_hash_names(
     axum::extract::State(state): axum::extract::State<AppState>
 ) -> impl IntoResponse {
-    let db = state.db.lock().unwrap();
-    if let Some(db) = db.as_ref() {
+    let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
+    if let Some(db) = db_lock.as_ref() {
         match db.list_all().await {
-            Ok(entries) => Json(entries).into_response(),
+            Ok(entries) => Json::<Vec<HashEntryOutput>>(entries).into_response(),
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
         }
     } else {
@@ -171,8 +169,8 @@ async fn delete_hash_entry(
     axum::extract::State(state): axum::extract::State<AppState>,
     Json(req): Json<DeleteHashRequest>
 ) -> impl IntoResponse {
-    let db = state.db.lock().unwrap();
-    if let Some(db) = db.as_ref() {
+    let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
+    if let Some(db) = db_lock.as_ref() {
         match db.delete_hash(&req.hash).await {
             Ok(_) => StatusCode::OK.into_response(),
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
@@ -185,8 +183,8 @@ async fn delete_hash_entry(
 async fn clear_all_database(
     axum::extract::State(state): axum::extract::State<AppState>
 ) -> impl IntoResponse {
-    let db = state.db.lock().unwrap();
-    if let Some(db) = db.as_ref() {
+    let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
+    if let Some(db) = db_lock.as_ref() {
         match db.clear_all().await {
             Ok(_) => StatusCode::OK.into_response(),
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
@@ -204,8 +202,8 @@ async fn pull_remote_database(
         (p.remote_db_url.clone(), p.remote_db_token.clone(), p.remote_db_user.clone(), p.remote_db_pass.clone())
     };
 
-    let db = state.db.lock().unwrap();
-    if let Some(db) = db.as_ref() {
+    let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
+    if let Some(db) = db_lock.as_ref() {
         match db.pull_from_remote(&url, &token, &user, &pass).await {
             Ok(_) => StatusCode::OK.into_response(),
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
@@ -223,11 +221,30 @@ async fn push_remote_database(
         (p.remote_db_url.clone(), p.remote_db_token.clone(), p.remote_db_user.clone(), p.remote_db_pass.clone())
     };
 
-    let db = state.db.lock().unwrap();
-    if let Some(db) = db.as_ref() {
+    let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
+    if let Some(db) = db_lock.as_ref() {
         match db.push_to_remote(&url, &token, &user, &pass).await {
             Ok(_) => StatusCode::OK.into_response(),
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        }
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE.into_response()
+    }
+}
+
+async fn test_database_connection(
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> impl IntoResponse {
+    let (url, token, user, pass) = {
+        let p = state.profile.lock().unwrap();
+        (p.remote_db_url.clone(), p.remote_db_token.clone(), p.remote_db_user.clone(), p.remote_db_pass.clone())
+    };
+
+    let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
+    if let Some(db) = db_lock.as_ref() {
+        match db.pull_from_remote(&url, &token, &user, &pass).await {
+            Ok(_) => "Connection successful!".into_response(),
+            Err(e) => (StatusCode::UNAUTHORIZED, e.to_string()).into_response(),
         }
     } else {
         StatusCode::SERVICE_UNAVAILABLE.into_response()
@@ -239,9 +256,8 @@ async fn push_remote_database(
 struct CliRequest {
     folder: String,
     model: String,
-    // ... complete args
 }
 
 async fn start_cli() -> StatusCode {
-    StatusCode::NOT_IMPLEMENTED // Placeholder
+    StatusCode::NOT_IMPLEMENTED 
 }
