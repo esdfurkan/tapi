@@ -117,12 +117,14 @@ impl DatabaseManager {
         remote_db.use_ns("tapi").use_db("main").await?;
 
         if is_push {
+            let _ = remote_db
                 .query("INSERT INTO file_hashes $entries ON DUPLICATE KEY UPDATE name = $after.name, folder = $after.folder, created_at = $after.created_at")
                 .bind(("entries", local_entries))
                 .await?;
         } else {
             let remote_entries: Vec<HashEntry> = remote_db.select("file_hashes").await?;
             if !remote_entries.is_empty() {
+                let _ = self.db
                     .query("INSERT INTO file_hashes $entries ON DUPLICATE KEY UPDATE name = $after.name, folder = $after.folder, created_at = $after.created_at")
                     .bind(("entries", remote_entries))
                     .await?;

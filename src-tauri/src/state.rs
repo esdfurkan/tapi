@@ -6,7 +6,7 @@ pub struct AppState {
     #[allow(dead_code)]
     pub language: Mutex<Language>,
     pub profile: Arc<Mutex<Profile>>,
-    pub db: Mutex<Option<DatabaseManager>>,
+    pub db: Arc<Mutex<Option<DatabaseManager>>>,
 }
 
 impl AppState {
@@ -15,7 +15,7 @@ impl AppState {
         Self {
             language: Mutex::new(Language::default()),
             profile: Arc::new(Mutex::new(Profile::default())),
-            db: Mutex::new(None),
+            db: Arc::new(Mutex::new(None)),
         }
     }
 }
