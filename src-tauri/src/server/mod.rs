@@ -10,7 +10,7 @@ use rust_embed::RustEmbed;
 use tapi_lib::config::profile::Profile;
 use tapi_lib::utils::logger::ProgressLogger;
 use tokio::sync::broadcast;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use tapi_lib::core::database::{DatabaseManager, HashEntryOutput};
 
@@ -135,8 +135,12 @@ async fn save_hash_name(
     axum::extract::State(state): axum::extract::State<AppState>,
     Json(req): Json<SaveHashRequest>
 ) -> impl IntoResponse {
-    let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
-    if let Some(db) = db_lock.as_ref() {
+    let db = {
+        let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
+        db_lock.clone()
+    };
+
+    if let Some(db) = db {
         match db.save_hash(req.hash, req.name).await {
             Ok(_) => StatusCode::OK.into_response(),
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
@@ -149,8 +153,12 @@ async fn save_hash_name(
 async fn list_hash_names(
     axum::extract::State(state): axum::extract::State<AppState>
 ) -> impl IntoResponse {
-    let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
-    if let Some(db) = db_lock.as_ref() {
+    let db = {
+        let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
+        db_lock.clone()
+    };
+
+    if let Some(db) = db {
         match db.list_all().await {
             Ok(entries) => Json::<Vec<HashEntryOutput>>(entries).into_response(),
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
@@ -169,8 +177,12 @@ async fn delete_hash_entry(
     axum::extract::State(state): axum::extract::State<AppState>,
     Json(req): Json<DeleteHashRequest>
 ) -> impl IntoResponse {
-    let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
-    if let Some(db) = db_lock.as_ref() {
+    let db = {
+        let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
+        db_lock.clone()
+    };
+
+    if let Some(db) = db {
         match db.delete_hash(&req.hash).await {
             Ok(_) => StatusCode::OK.into_response(),
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
@@ -183,8 +195,12 @@ async fn delete_hash_entry(
 async fn clear_all_database(
     axum::extract::State(state): axum::extract::State<AppState>
 ) -> impl IntoResponse {
-    let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
-    if let Some(db) = db_lock.as_ref() {
+    let db = {
+        let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
+        db_lock.clone()
+    };
+
+    if let Some(db) = db {
         match db.clear_all().await {
             Ok(_) => StatusCode::OK.into_response(),
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
@@ -202,8 +218,12 @@ async fn pull_remote_database(
         (p.remote_db_url.clone(), p.remote_db_token.clone(), p.remote_db_user.clone(), p.remote_db_pass.clone())
     };
 
-    let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
-    if let Some(db) = db_lock.as_ref() {
+    let db = {
+        let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
+        db_lock.clone()
+    };
+
+    if let Some(db) = db {
         match db.pull_from_remote(&url, &token, &user, &pass).await {
             Ok(_) => StatusCode::OK.into_response(),
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
@@ -221,8 +241,12 @@ async fn push_remote_database(
         (p.remote_db_url.clone(), p.remote_db_token.clone(), p.remote_db_user.clone(), p.remote_db_pass.clone())
     };
 
-    let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
-    if let Some(db) = db_lock.as_ref() {
+    let db = {
+        let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
+        db_lock.clone()
+    };
+
+    if let Some(db) = db {
         match db.push_to_remote(&url, &token, &user, &pass).await {
             Ok(_) => StatusCode::OK.into_response(),
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
@@ -240,8 +264,12 @@ async fn test_database_connection(
         (p.remote_db_url.clone(), p.remote_db_token.clone(), p.remote_db_user.clone(), p.remote_db_pass.clone())
     };
 
-    let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
-    if let Some(db) = db_lock.as_ref() {
+    let db = {
+        let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
+        db_lock.clone()
+    };
+
+    if let Some(db) = db {
         match db.pull_from_remote(&url, &token, &user, &pass).await {
             Ok(_) => "Connection successful!".into_response(),
             Err(e) => (StatusCode::UNAUTHORIZED, e.to_string()).into_response(),
