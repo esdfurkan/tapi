@@ -41,6 +41,7 @@ hex = "0.4.3"
 sysinfo = "0.37.2"
 chacha20poly1305 = "0.10.1"
 lopdf = "0.39.0"
+surrealdb = { version = "2.5.0", features = ["kv-surrealkv", "protocol-http", "protocol-ws"] }
 
 # Server Mode Dependencies
 axum = { version = "0.8.8", features = ["multipart"] }

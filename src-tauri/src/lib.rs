@@ -47,6 +47,17 @@ pub fn run() {
                     let _ = std::fs::write(translations_dir.join("tr.json"), tr_json);
                 }
 
+                // Initialize database
+                let db_path = config_dir.join("tapi_db"); // Changed name to avoid conflict with sqlite
+                let handle_clone = handle.clone();
+                tauri::async_runtime::block_on(async move {
+                    if let Ok(db_manager) = crate::core::database::DatabaseManager::new(db_path).await {
+                        let state = handle_clone.state::<AppState>();
+                        let mut db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
+                        *db_lock = Some(db_manager);
+                    }
+                });
+
                 Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -62,6 +73,13 @@ pub fn run() {
             commands::downloader::save_base64_image,
             commands::file_ops::get_directory_structure,
             commands::file_ops::list_subdirectories,
+            commands::database::save_hash_name,
+            commands::database::get_name_by_hash,
+            commands::database::list_hash_names,
+            commands::database::delete_hash_entry,
+            commands::database::clear_all_database,
+            commands::database::pull_remote_database,
+            commands::database::push_remote_database,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

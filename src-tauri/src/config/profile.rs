@@ -31,6 +31,22 @@ pub struct Profile {
     pub ocr_headers: String,     // JSON text
     #[serde(default)]
     pub save_debug_json: bool,
+
+    // Database Settings
+    #[serde(default = "default_db_mode")]
+    pub database_mode: String, // "off", "local", "remote"
+    #[serde(default)]
+    pub remote_db_url: String,
+    #[serde(default)]
+    pub remote_db_token: String,
+    #[serde(default)]
+    pub remote_db_user: String,
+    #[serde(default)]
+    pub remote_db_pass: String,
+}
+
+fn default_db_mode() -> String {
+    "off".to_string()
 }
 
 fn default_storage_url() -> String {
@@ -113,9 +129,40 @@ impl Profile {
         // Decrypt API key if encrypted
         if let Some(key) = &profile.api_key {
             let prefix = Self::get_prefix();
-            // Only check for machine-specific prefix. Legacy support removed.
             if key.starts_with(&prefix) {
                 profile.api_key = Some(Self::decrypt(key));
+            }
+        }
+
+        // Decrypt Remote DB URL
+        if !profile.remote_db_url.is_empty() {
+            let prefix = Self::get_prefix();
+            if profile.remote_db_url.starts_with(&prefix) {
+                profile.remote_db_url = Self::decrypt(&profile.remote_db_url);
+            }
+        }
+
+        // Decrypt Remote DB Token
+        if !profile.remote_db_token.is_empty() {
+            let prefix = Self::get_prefix();
+            if profile.remote_db_token.starts_with(&prefix) {
+                profile.remote_db_token = Self::decrypt(&profile.remote_db_token);
+            }
+        }
+
+        // Decrypt Remote DB User
+        if !profile.remote_db_user.is_empty() {
+            let prefix = Self::get_prefix();
+            if profile.remote_db_user.starts_with(&prefix) {
+                profile.remote_db_user = Self::decrypt(&profile.remote_db_user);
+            }
+        }
+
+        // Decrypt Remote DB Pass
+        if !profile.remote_db_pass.is_empty() {
+            let prefix = Self::get_prefix();
+            if profile.remote_db_pass.starts_with(&prefix) {
+                profile.remote_db_pass = Self::decrypt(&profile.remote_db_pass);
             }
         }
         
@@ -132,10 +179,53 @@ impl Profile {
                 if !key.starts_with(&prefix) {
                     to_save.api_key = Some(Self::encrypt(key));
                 } else {
-                    // Re-encrypt to refresh nonce
                     let plain = Self::decrypt(key);
                     to_save.api_key = Some(Self::encrypt(&plain));
                 }
+            }
+        }
+
+        // Encrypt Remote DB URL
+        if !to_save.remote_db_url.is_empty() {
+            let prefix = Self::get_prefix();
+            if !to_save.remote_db_url.starts_with(&prefix) {
+                to_save.remote_db_url = Self::encrypt(&to_save.remote_db_url);
+            } else {
+                let plain = Self::decrypt(&to_save.remote_db_url);
+                to_save.remote_db_url = Self::encrypt(&plain);
+            }
+        }
+
+        // Encrypt Remote DB Token
+        if !to_save.remote_db_token.is_empty() {
+            let prefix = Self::get_prefix();
+            if !to_save.remote_db_token.starts_with(&prefix) {
+                to_save.remote_db_token = Self::encrypt(&to_save.remote_db_token);
+            } else {
+                let plain = Self::decrypt(&to_save.remote_db_token);
+                to_save.remote_db_token = Self::encrypt(&plain);
+            }
+        }
+
+        // Encrypt Remote DB User
+        if !to_save.remote_db_user.is_empty() {
+            let prefix = Self::get_prefix();
+            if !to_save.remote_db_user.starts_with(&prefix) {
+                to_save.remote_db_user = Self::encrypt(&to_save.remote_db_user);
+            } else {
+                let plain = Self::decrypt(&to_save.remote_db_user);
+                to_save.remote_db_user = Self::encrypt(&plain);
+            }
+        }
+
+        // Encrypt Remote DB Pass
+        if !to_save.remote_db_pass.is_empty() {
+            let prefix = Self::get_prefix();
+            if !to_save.remote_db_pass.starts_with(&prefix) {
+                to_save.remote_db_pass = Self::encrypt(&to_save.remote_db_pass);
+            } else {
+                let plain = Self::decrypt(&to_save.remote_db_pass);
+                to_save.remote_db_pass = Self::encrypt(&plain);
             }
         }
 

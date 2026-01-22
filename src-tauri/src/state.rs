@@ -1,10 +1,11 @@
-use std::sync::{Mutex, Arc};
 use crate::config::{language::Language, profile::Profile};
+use crate::core::database::DatabaseManager;
 
 pub struct AppState {
     #[allow(dead_code)]
     pub language: Mutex<Language>,
     pub profile: Arc<Mutex<Profile>>,
+    pub db: Mutex<Option<DatabaseManager>>,
 }
 
 impl AppState {
@@ -13,6 +14,7 @@ impl AppState {
         Self {
             language: Mutex::new(Language::default()),
             profile: Arc::new(Mutex::new(Profile::default())),
+            db: Mutex::new(None),
         }
     }
 }

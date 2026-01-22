@@ -17,12 +17,17 @@
         "mangadex": {
             "title": "MangaDex",
             "desc": "Download and translate from MangaDex."
+        },
+        "database": {
+            "title": "Database",
+            "desc": "Manage local hash and name mappings."
         }
     },
     "headers": {
         "folder_translation": "Folder Translation",
         "archive_translation": "Archive Translation",
-        "mangadex_downloader": "MangaDex Downloader"
+        "mangadex_downloader": "MangaDex Downloader",
+        "database_management": "Database Management"
     },
     "settings": {
         "title": "Settings",

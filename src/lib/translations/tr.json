@@ -17,12 +17,17 @@
     "mangadex": {
       "title": "MangaDex",
       "desc": "MangaDex'ten indirin ve çevirin."
+    },
+    "database": {
+      "title": "Veritabanı",
+      "desc": "Yerel hash ve isim eşleşmelerini yönetin."
     }
   },
   "headers": {
     "folder_translation": "Klasör Çevirisi",
     "archive_translation": "Arşiv Çevirisi",
-    "mangadex_downloader": "MangaDex İndirici"
+    "mangadex_downloader": "MangaDex İndirici",
+    "database_management": "Veritabanı Yönetimi"
   },
   "settings": {
     "title": "Ayarlar",
