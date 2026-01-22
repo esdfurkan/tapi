@@ -120,7 +120,8 @@ fn main() {
                         12,
                         None,
                         None,
-                        None
+                        None,
+                        None,
                     ).await
                 } else {
                      modes::cli_mode::start_cli_translation(
@@ -136,7 +137,8 @@ fn main() {
                         12,
                         None,
                         None,
-                        None
+                        None,
+                        None,
                     ).await
                 };
 
