@@ -1,5 +1,5 @@
 use surrealdb::engine::local::Db;
-use surrealdb::engine::local::SurrealKV;
+use surrealdb::engine::local::SurrealKv;
 use surrealdb::engine::remote::http::Http;
 use surrealdb::engine::remote::ws::Ws;
 use surrealdb::opt::auth::Root;
@@ -29,7 +29,7 @@ pub struct DatabaseManager {
 
 impl DatabaseManager {
     pub async fn new(path: PathBuf) -> Result<Self> {
-        let db: Surreal<Db> = Surreal::new::<SurrealKV>(path.to_str().unwrap()).await?;
+        let db: Surreal<Db> = Surreal::new::<SurrealKv>(path.to_str().unwrap()).await?;
         db.use_ns("tapi").use_db("main").await?;
         Ok(Self { db })
     }

@@ -10,8 +10,9 @@ use rust_embed::RustEmbed;
 use tapi_lib::config::profile::Profile;
 use tapi_lib::utils::logger::ProgressLogger;
 use tokio::sync::broadcast;
-use serde::Deserialize;
-use std::path::Path;
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+use crate::core::database::{DatabaseManager, HashEntryOutput};
 
 #[derive(RustEmbed)]
 #[folder = "../build/"] // Svelte build output
@@ -34,6 +35,7 @@ impl ProgressLogger for ServerLogger {
 #[derive(Clone)]
 struct AppState {
     profile: Arc<Mutex<Profile>>,
+    db: Arc<Mutex<Option<DatabaseManager>>>,
     _tx: broadcast::Sender<String>,
 }
 
@@ -43,8 +45,16 @@ pub async fn start_server(port: u16, host: &str) {
     // Load profile
     let profile = Arc::new(Mutex::new(Profile::load(Path::new("profile.json")).unwrap_or_default()));
     
+    // Initialize DB
+    let db_path = PathBuf::from("tapi.db");
+    let db = match DatabaseManager::new(db_path).await {
+        Ok(dm) => Arc::new(Mutex::new(Some(dm))),
+        Err(_) => Arc::new(Mutex::new(None)),
+    };
+    
     let state = AppState {
         profile,
+        db,
         _tx: tx,
     };
 
@@ -52,8 +62,14 @@ pub async fn start_server(port: u16, host: &str) {
         .route("/api/status", get(status_handler))
         .route("/api/settings/load", get(load_settings))
         .route("/api/settings/save", post(save_settings))
+        .route("/api/database/list", get(list_hash_names))
+        .route("/api/database/save", post(save_hash_name))
+        .route("/api/database/delete", post(delete_hash_entry))
+        .route("/api/database/clear", post(clear_all_database))
+        .route("/api/database/pull", post(pull_remote_database))
+        .route("/api/database/push", post(push_remote_database))
+        .route("/api/database/test", post(test_database_connection))
         .route("/api/translate/cli", post(start_cli))
-        .fallback(static_handler)
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -109,6 +125,113 @@ async fn save_settings(
         let _ = p.save(Path::new("profile.json"));
     }
     StatusCode::OK
+}
+
+#[derive(Deserialize)]
+struct SaveHashRequest {
+    hash: String,
+    name: String,
+}
+
+async fn save_hash_name(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Json(req): Json<SaveHashRequest>
+) -> impl IntoResponse {
+    let db = state.db.lock().unwrap();
+    if let Some(db) = db.as_ref() {
+        match db.save_hash(req.hash, req.name).await {
+            Ok(_) => StatusCode::OK.into_response(),
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        }
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE.into_response()
+    }
+}
+
+async fn list_hash_names(
+    axum::extract::State(state): axum::extract::State<AppState>
+) -> impl IntoResponse {
+    let db = state.db.lock().unwrap();
+    if let Some(db) = db.as_ref() {
+        match db.list_all().await {
+            Ok(entries) => Json(entries).into_response(),
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        }
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE.into_response()
+    }
+}
+
+#[derive(Deserialize)]
+struct DeleteHashRequest {
+    hash: String,
+}
+
+async fn delete_hash_entry(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Json(req): Json<DeleteHashRequest>
+) -> impl IntoResponse {
+    let db = state.db.lock().unwrap();
+    if let Some(db) = db.as_ref() {
+        match db.delete_hash(&req.hash).await {
+            Ok(_) => StatusCode::OK.into_response(),
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        }
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE.into_response()
+    }
+}
+
+async fn clear_all_database(
+    axum::extract::State(state): axum::extract::State<AppState>
+) -> impl IntoResponse {
+    let db = state.db.lock().unwrap();
+    if let Some(db) = db.as_ref() {
+        match db.clear_all().await {
+            Ok(_) => StatusCode::OK.into_response(),
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        }
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE.into_response()
+    }
+}
+
+async fn pull_remote_database(
+    axum::extract::State(state): axum::extract::State<AppState>
+) -> impl IntoResponse {
+    let (url, token, user, pass) = {
+        let p = state.profile.lock().unwrap();
+        (p.remote_db_url.clone(), p.remote_db_token.clone(), p.remote_db_user.clone(), p.remote_db_pass.clone())
+    };
+
+    let db = state.db.lock().unwrap();
+    if let Some(db) = db.as_ref() {
+        match db.pull_from_remote(&url, &token, &user, &pass).await {
+            Ok(_) => StatusCode::OK.into_response(),
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        }
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE.into_response()
+    }
+}
+
+async fn push_remote_database(
+    axum::extract::State(state): axum::extract::State<AppState>
+) -> impl IntoResponse {
+    let (url, token, user, pass) = {
+        let p = state.profile.lock().unwrap();
+        (p.remote_db_url.clone(), p.remote_db_token.clone(), p.remote_db_user.clone(), p.remote_db_pass.clone())
+    };
+
+    let db = state.db.lock().unwrap();
+    if let Some(db) = db.as_ref() {
+        match db.push_to_remote(&url, &token, &user, &pass).await {
+            Ok(_) => StatusCode::OK.into_response(),
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        }
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE.into_response()
+    }
 }
 
 #[allow(dead_code)]

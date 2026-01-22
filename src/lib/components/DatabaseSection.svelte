@@ -139,6 +139,23 @@
     e.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  let connectionStatus: 'idle' | 'testing' | 'success' | 'error' = 'idle';
+  let connectionMessage = "";
+
+  async function testConnection() {
+    connectionStatus = 'testing';
+    connectionMessage = "Connecting...";
+    try {
+      await api.command('test_database_connection');
+      connectionStatus = 'success';
+      connectionMessage = "Connected successfully!";
+      await loadEntries();
+    } catch (e) {
+      connectionStatus = 'error';
+      connectionMessage = String(e);
+    }
+  }
+
   onMount(async () => {
     await loadConfig();
     if (databaseMode !== "off") await loadEntries();
@@ -155,7 +172,19 @@
             </div>
             <div>
                 <h3 class="text-xl font-bold dark:text-white">Database Mode</h3>
-                <p class="text-sm text-gray-500 dark:text-gray-400">Choose how to store mapping data</p>
+                <div class="flex items-center gap-2 mt-0.5">
+                    {#if databaseMode === 'local'}
+                        <span class="flex items-center gap-1.5 px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 text-[10px] font-black uppercase rounded-lg border border-green-200 dark:border-green-800">
+                            <span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span> Local Active
+                        </span>
+                    {:else if databaseMode === 'remote'}
+                        <span class="flex items-center gap-1.5 px-2 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 text-[10px] font-black uppercase rounded-lg border border-purple-200 dark:border-purple-800">
+                            <span class="w-1.5 h-1.5 rounded-full bg-purple-500 {connectionStatus === 'success' ? 'animate-pulse' : ''}"></span> Remote Mode
+                        </span>
+                    {:else}
+                        <span class="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-400 text-[10px] font-black uppercase rounded-lg border border-gray-200 dark:border-gray-700">Storage Disabled</span>
+                    {/if}
+                </div>
             </div>
         </div>
 
@@ -191,8 +220,9 @@
             </div>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div class="space-y-1.5">
-                    <label class="text-xs font-bold text-gray-400 uppercase ml-1">Endpoint URL</label>
+                    <label for="remote-url" class="text-xs font-bold text-gray-400 uppercase ml-1">Endpoint URL</label>
                     <input 
+                      id="remote-url"
                       type="text" bind:value={remoteUrl} placeholder="https://your-api.com/sync"
                       class="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border-none rounded-xl focus:ring-2 focus:ring-purple-500 outline-none dark:text-white"
                       on:blur={updateConfig}
@@ -200,10 +230,11 @@
                 </div>
                 
                 <div class="space-y-1.5">
-                    <label class="text-xs font-bold text-gray-400 uppercase ml-1">JWT Token (Optional)</label>
+                    <label for="remote-token" class="text-xs font-bold text-gray-400 uppercase ml-1">JWT Token (Optional)</label>
                     <div class="relative">
                         <Key size={14} class="absolute left-3 top-3.5 text-gray-400" />
                         <input 
+                          id="remote-token"
                           type="password" bind:value={remoteToken} placeholder="Bearer token..."
                           class="w-full pl-9 pr-4 py-2.5 bg-gray-50 dark:bg-gray-800 border-none rounded-xl focus:ring-2 focus:ring-purple-500 outline-none dark:text-white"
                           on:blur={updateConfig}
@@ -212,10 +243,11 @@
                 </div>
 
                 <div class="space-y-1.5">
-                    <label class="text-xs font-bold text-gray-400 uppercase ml-1">Username (Signin)</label>
+                    <label for="remote-user" class="text-xs font-bold text-gray-400 uppercase ml-1">Username (Signin)</label>
                     <div class="relative">
                         <User size={14} class="absolute left-3 top-3.5 text-gray-400" />
                         <input 
+                          id="remote-user"
                           type="text" bind:value={remoteUser} placeholder="root"
                           class="w-full pl-9 pr-4 py-2.5 bg-gray-50 dark:bg-gray-800 border-none rounded-xl focus:ring-2 focus:ring-purple-500 outline-none dark:text-white"
                           on:blur={updateConfig}
@@ -224,16 +256,45 @@
                 </div>
 
                 <div class="space-y-1.5">
-                    <label class="text-xs font-bold text-gray-400 uppercase ml-1">Password (Signin)</label>
+                    <label for="remote-pass" class="text-xs font-bold text-gray-400 uppercase ml-1">Password (Signin)</label>
                     <div class="relative">
                         <Key size={14} class="absolute left-3 top-3.5 text-gray-400" />
                         <input 
+                          id="remote-pass"
                           type="password" bind:value={remotePass} placeholder="••••••••"
                           class="w-full pl-9 pr-4 py-2.5 bg-gray-50 dark:bg-gray-800 border-none rounded-xl focus:ring-2 focus:ring-purple-500 outline-none dark:text-white"
                           on:blur={updateConfig}
                         />
                     </div>
                 </div>
+            </div>
+
+            <div class="mt-6 flex flex-col md:flex-row items-center gap-4">
+                <button 
+                  on:click={testConnection}
+                  disabled={connectionStatus === 'testing'}
+                  class="w-full md:w-auto px-6 py-2.5 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-2xl font-bold text-sm hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                    {#if connectionStatus === 'testing'}
+                        <RefreshCw size={18} class="animate-spin" /> Testing...
+                    {:else}
+                        <Check size={18} /> Connect / Test
+                    {/if}
+                </button>
+
+                {#if connectionStatus !== 'idle'}
+                    <div class="flex items-center gap-2" transition:fade>
+                        {#if connectionStatus === 'success'}
+                            <div class="text-green-500 flex items-center gap-1.5 text-sm font-bold">
+                                <Check size={16} /> {connectionMessage}
+                            </div>
+                        {:else if connectionStatus === 'error'}
+                            <div class="text-red-500 flex items-center gap-1.5 text-sm font-bold">
+                                <ShieldAlert size={16} /> {connectionMessage}
+                            </div>
+                        {/if}
+                    </div>
+                {/if}
             </div>
             <div class="mt-4 p-3 bg-blue-50 dark:bg-blue-900/10 rounded-xl flex items-start gap-3 border border-blue-100 dark:border-blue-900/30">
                 <ShieldAlert size={16} class="text-blue-500 mt-0.5" />

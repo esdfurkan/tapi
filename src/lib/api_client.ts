@@ -61,8 +61,20 @@ function mapCommandToEndpoint(cmd: string): EndpointConfig | null {
             return { path: '/api/settings/load', method: 'GET' };
         case 'save_settings':
             return { path: '/api/settings/save', method: 'POST' };
-        // Add translation commands later if needed, currently only settings are critical for UI init
-        // case 'start_cli_translation': ... 
+        case 'list_hash_names':
+            return { path: '/api/database/list', method: 'GET' };
+        case 'save_hash_name':
+            return { path: '/api/database/save', method: 'POST' };
+        case 'delete_hash_entry':
+            return { path: '/api/database/delete', method: 'POST' };
+        case 'clear_all_database':
+            return { path: '/api/database/clear', method: 'POST' };
+        case 'pull_remote_database':
+            return { path: '/api/database/pull', method: 'POST' };
+        case 'push_remote_database':
+            return { path: '/api/database/push', method: 'POST' };
+        case 'test_database_connection':
+            return { path: '/api/database/test', method: 'POST' };
         default:
             console.warn(`Command map missing for: ${cmd}`);
             return null;

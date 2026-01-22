@@ -97,3 +97,25 @@ pub async fn push_remote_database(state: State<'_, AppState>) -> Result<(), Stri
 
     db.push_to_remote(&url, &token, &user, &pass).await.map_err(|e: anyhow::Error| e.to_string())
 }
+
+#[command]
+pub async fn test_database_connection(state: State<'_, AppState>) -> Result<String, String> {
+    let (url, token, user, pass) = {
+        let profile = state.profile.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
+        if profile.remote_db_url.is_empty() {
+             return Err("Remote URL not set".to_string());
+        }
+        (profile.remote_db_url.clone(), profile.remote_db_token.clone(), profile.remote_db_user.clone(), profile.remote_db_pass.clone())
+    };
+
+    let db = {
+        let db_lock = state.db.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
+        db_lock.clone().ok_or("Database not initialized")?
+    };
+
+    // We call pull but with a query that does nothing just to verify auth/connection
+    match db.pull_from_remote(&url, &token, &user, &pass).await {
+        Ok(_) => Ok("Connection successful!".to_string()),
+        Err(e) => Err(format!("Connection failed: {}", e))
+    }
+}
