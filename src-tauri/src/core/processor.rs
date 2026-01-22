@@ -150,14 +150,17 @@ pub async fn process_directory(logger: &impl ProgressLogger, input_dir: &Path, o
 
     // Check DB for existing hashes if available
     let mut db_existing_hashes = HashSet::new();
-    if let Some(ref db_mutex) = options.db {
-        if let Ok(db_lock) = db_mutex.lock() {
-            if let Some(db) = db_lock.as_ref() {
-                if let Ok(entries) = db.list_all().await {
-                    for entry in entries {
-                        db_existing_hashes.insert(entry.hash);
-                    }
-                }
+    let db_manager = if let Some(ref db_mutex) = options.db {
+        let db_lock = db_mutex.lock().map_err(|e| e.to_string()).ok();
+        db_lock.and_then(|lock| lock.clone())
+    } else {
+        None
+    };
+
+    if let Some(db) = db_manager {
+        if let Ok(entries) = db.list_all().await {
+            for entry in entries {
+                db_existing_hashes.insert(entry.hash);
             }
         }
     }
