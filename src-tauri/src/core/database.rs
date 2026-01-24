@@ -5,8 +5,11 @@ use surrealdb::engine::remote::ws::Ws;
 use surrealdb::opt::auth::Root;
 use surrealdb::Surreal;
 use std::path::PathBuf;
+use std::time::Duration;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+
+const REMOTE_TIMEOUT_SECS: u64 = 15;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct HashEntry {
@@ -78,35 +81,8 @@ impl DatabaseManager {
         Ok(())
     }
 
-    // --- Dynamic Protocol Support (HTTP/WS) ---
-
-    pub async fn push_to_remote(&self, url: &str, token: &str, user: &str, pass: &str) -> Result<()> {
-        let entries: Vec<HashEntry> = self.db.select("file_hashes").await?;
-        if entries.is_empty() { return Ok(()); }
-
-        if url.starts_with("ws") {
-            let remote_db = Surreal::new::<Ws>(url.trim_start_matches("ws://").trim_start_matches("wss://")).await?;
-            self.sync_native(&remote_db, token, user, pass, entries, true).await?;
-        } else {
-            let remote_db = Surreal::new::<Http>(url.trim_start_matches("http://").trim_start_matches("https://")).await?;
-            self.sync_native(&remote_db, token, user, pass, entries, true).await?;
-        }
-        Ok(())
-    }
-
-    pub async fn pull_from_remote(&self, url: &str, token: &str, user: &str, pass: &str) -> Result<()> {
-        if url.starts_with("ws") {
-            let remote_db = Surreal::new::<Ws>(url.trim_start_matches("ws://").trim_start_matches("wss://")).await?;
-            self.sync_native(&remote_db, token, user, pass, vec![], false).await?;
-        } else {
-            let remote_db = Surreal::new::<Http>(url.trim_start_matches("http://").trim_start_matches("https://")).await?;
-            self.sync_native(&remote_db, token, user, pass, vec![], false).await?;
-        }
-        Ok(())
-    }
-
-    async fn sync_native<C: surrealdb::Connection>(&self, remote_db: &Surreal<C>, token: &str, user: &str, pass: &str, local_entries: Vec<HashEntry>, is_push: bool) -> Result<()> {
-        // Auth
+    // --- Auth Helper ---
+    async fn auth_remote<C: surrealdb::Connection>(remote_db: &Surreal<C>, token: &str, user: &str, pass: &str) -> Result<()> {
         if !token.is_empty() {
             remote_db.authenticate(token).await?;
         } else if !user.is_empty() && !pass.is_empty() {
@@ -115,23 +91,88 @@ impl DatabaseManager {
                 password: pass 
             }).await?;
         }
-
         remote_db.use_ns("tapi").use_db("main").await?;
+        Ok(())
+    }
 
-        if is_push {
-            let _ = remote_db
-                .query("INSERT INTO file_hashes $entries ON DUPLICATE KEY UPDATE name = $after.name, folder = $after.folder, created_at = $after.created_at")
-                .bind(("entries", local_entries))
-                .await?;
-        } else {
-            let remote_entries: Vec<HashEntry> = remote_db.select("file_hashes").await?;
-            if !remote_entries.is_empty() {
-                let _ = self.db
-                    .query("INSERT INTO file_hashes $entries ON DUPLICATE KEY UPDATE name = $after.name, folder = $after.folder, created_at = $after.created_at")
-                    .bind(("entries", remote_entries))
-                    .await?;
+    // --- Test Connection (No Side Effects) ---
+    pub async fn test_remote_connection(url: &str, token: &str, user: &str, pass: &str) -> Result<()> {
+        let timeout = Duration::from_secs(REMOTE_TIMEOUT_SECS);
+        
+        tokio::time::timeout(timeout, async {
+            if url.starts_with("ws") {
+                let remote_db = Surreal::new::<Ws>(url.trim_start_matches("ws://").trim_start_matches("wss://")).await?;
+                Self::auth_remote(&remote_db, token, user, pass).await?;
+            } else {
+                let remote_db = Surreal::new::<Http>(url.trim_start_matches("http://").trim_start_matches("https://")).await?;
+                Self::auth_remote(&remote_db, token, user, pass).await?;
             }
+            Ok::<(), anyhow::Error>(())
+        }).await.map_err(|_| anyhow::anyhow!("Connection timeout ({}s)", REMOTE_TIMEOUT_SECS))??;
+        
+        Ok(())
+    }
+
+    // --- Dynamic Protocol Support (HTTP/WS) with Timeout ---
+
+    pub async fn push_to_remote(&self, url: &str, token: &str, user: &str, pass: &str) -> Result<()> {
+        let entries: Vec<HashEntry> = self.db.select("file_hashes").await?;
+        if entries.is_empty() { return Ok(()); }
+
+        let timeout = Duration::from_secs(REMOTE_TIMEOUT_SECS);
+        
+        tokio::time::timeout(timeout, async {
+            if url.starts_with("ws") {
+                let remote_db = Surreal::new::<Ws>(url.trim_start_matches("ws://").trim_start_matches("wss://")).await?;
+                self.sync_push(&remote_db, token, user, pass, entries).await?;
+            } else {
+                let remote_db = Surreal::new::<Http>(url.trim_start_matches("http://").trim_start_matches("https://")).await?;
+                self.sync_push(&remote_db, token, user, pass, entries).await?;
+            }
+            Ok::<(), anyhow::Error>(())
+        }).await.map_err(|_| anyhow::anyhow!("Push timeout ({}s)", REMOTE_TIMEOUT_SECS))??;
+        
+        Ok(())
+    }
+
+    pub async fn pull_from_remote(&self, url: &str, token: &str, user: &str, pass: &str) -> Result<()> {
+        let timeout = Duration::from_secs(REMOTE_TIMEOUT_SECS);
+        
+        tokio::time::timeout(timeout, async {
+            if url.starts_with("ws") {
+                let remote_db = Surreal::new::<Ws>(url.trim_start_matches("ws://").trim_start_matches("wss://")).await?;
+                self.sync_pull(&remote_db, token, user, pass).await?;
+            } else {
+                let remote_db = Surreal::new::<Http>(url.trim_start_matches("http://").trim_start_matches("https://")).await?;
+                self.sync_pull(&remote_db, token, user, pass).await?;
+            }
+            Ok::<(), anyhow::Error>(())
+        }).await.map_err(|_| anyhow::anyhow!("Pull timeout ({}s)", REMOTE_TIMEOUT_SECS))??;
+        
+        Ok(())
+    }
+
+    async fn sync_push<C: surrealdb::Connection>(&self, remote_db: &Surreal<C>, token: &str, user: &str, pass: &str, entries: Vec<HashEntry>) -> Result<()> {
+        Self::auth_remote(remote_db, token, user, pass).await?;
+        
+        let _ = remote_db
+            .query("INSERT INTO file_hashes $entries ON DUPLICATE KEY UPDATE name = $after.name, folder = $after.folder, created_at = $after.created_at")
+            .bind(("entries", entries))
+            .await?;
+        Ok(())
+    }
+
+    async fn sync_pull<C: surrealdb::Connection>(&self, remote_db: &Surreal<C>, token: &str, user: &str, pass: &str) -> Result<()> {
+        Self::auth_remote(remote_db, token, user, pass).await?;
+        
+        let remote_entries: Vec<HashEntry> = remote_db.select("file_hashes").await?;
+        if !remote_entries.is_empty() {
+            let _ = self.db
+                .query("INSERT INTO file_hashes $entries ON DUPLICATE KEY UPDATE name = $after.name, folder = $after.folder, created_at = $after.created_at")
+                .bind(("entries", remote_entries))
+                .await?;
         }
         Ok(())
     }
 }
+

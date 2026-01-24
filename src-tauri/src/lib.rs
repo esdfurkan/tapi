@@ -29,8 +29,10 @@ pub fn run() {
                 if profile_path.exists() {
                     if let Ok(profile) = crate::config::profile::Profile::load(&profile_path) {
                          let state = handle.state::<AppState>();
-                         let mut lock = state.profile.lock().unwrap_or_else(|e: std::sync::PoisonError<_>| e.into_inner());
-                         *lock = profile;
+                         tauri::async_runtime::block_on(async {
+                             let mut lock = state.profile.write().await;
+                             *lock = profile;
+                         });
                     }
                 }
 
@@ -47,16 +49,26 @@ pub fn run() {
                     let _ = std::fs::write(translations_dir.join("tr.json"), tr_json);
                 }
 
-                // Initialize database
-                let db_path = config_dir.join("tapi_db"); // Changed name to avoid conflict with sqlite
+                // Initialize database synchronously to prevent race condition
+                let db_path = config_dir.join("tapi_db");
                 let handle_clone = handle.clone();
-                tauri::async_runtime::spawn(async move {
-                    if let Ok(db_manager) = crate::core::database::DatabaseManager::new(db_path).await {
-                        let state = handle_clone.state::<AppState>();
-                        let mut db_lock = state.db.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string()).unwrap();
-                        *db_lock = Some(db_manager);
-                    }
+                let db_result = tauri::async_runtime::block_on(async {
+                    crate::core::database::DatabaseManager::new(db_path).await
                 });
+                
+                match db_result {
+                    Ok(db_manager) => {
+                        let state = handle_clone.state::<AppState>();
+                        tauri::async_runtime::block_on(async {
+                            let mut db_lock = state.db.write().await;
+                            *db_lock = Some(db_manager);
+                        });
+                        log::info!("Database initialized successfully");
+                    }
+                    Err(e) => {
+                        log::error!("Failed to initialize database: {}", e);
+                    }
+                }
 
                 Ok(())
         })

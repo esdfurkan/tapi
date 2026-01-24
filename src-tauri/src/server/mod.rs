@@ -5,11 +5,11 @@ use axum::{
 };
 use tower_http::cors::CorsLayer;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use rust_embed::RustEmbed;
 use tapi_lib::config::profile::Profile;
 use tapi_lib::utils::logger::ProgressLogger;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, RwLock};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use tapi_lib::core::database::{DatabaseManager, HashEntryOutput};
@@ -34,8 +34,8 @@ impl ProgressLogger for ServerLogger {
 
 #[derive(Clone)]
 struct AppState {
-    profile: Arc<Mutex<Profile>>,
-    db: Arc<Mutex<Option<DatabaseManager>>>,
+    profile: Arc<RwLock<Profile>>,
+    db: Arc<RwLock<Option<DatabaseManager>>>,
     _tx: broadcast::Sender<String>,
 }
 
@@ -43,13 +43,13 @@ pub async fn start_server(port: u16, host: &str) {
     let (tx, _) = broadcast::channel(100);
     
     // Load profile
-    let profile = Arc::new(Mutex::new(Profile::load(Path::new("profile.json")).unwrap_or_default()));
+    let profile = Arc::new(RwLock::new(Profile::load(Path::new("profile.json")).unwrap_or_default()));
     
     // Initialize DB
     let db_path = PathBuf::from("tapi.db");
     let db = match DatabaseManager::new(db_path).await {
-        Ok(dm) => Arc::new(Mutex::new(Some(dm))),
-        Err(_) => Arc::new(Mutex::new(None)),
+        Ok(dm) => Arc::new(RwLock::new(Some(dm))),
+        Err(_) => Arc::new(RwLock::new(None)),
     };
     
     let state = AppState {
@@ -110,18 +110,17 @@ async fn status_handler() -> impl IntoResponse {
 }
 
 async fn load_settings(axum::extract::State(state): axum::extract::State<AppState>) -> Json<Profile> {
-    let profile = state.profile.lock().unwrap().clone();
-    Json(profile)
+    let profile = state.profile.read().await;
+    Json(profile.clone())
 }
 
 async fn save_settings(
     axum::extract::State(state): axum::extract::State<AppState>,
     Json(new_profile): Json<Profile>
 ) -> StatusCode {
-    if let Ok(mut p) = state.profile.lock() {
-        *p = new_profile.clone();
-        let _ = p.save(Path::new("profile.json"));
-    }
+    let mut p = state.profile.write().await;
+    *p = new_profile.clone();
+    let _ = p.save(Path::new("profile.json"));
     StatusCode::OK
 }
 
@@ -136,12 +135,9 @@ async fn save_hash_name(
     axum::extract::State(state): axum::extract::State<AppState>,
     Json(req): Json<SaveHashRequest>
 ) -> impl IntoResponse {
-    let db = {
-        let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
-        db_lock.clone()
-    };
-
-    if let Some(db) = db {
+    let db_lock = state.db.read().await;
+    
+    if let Some(db) = db_lock.as_ref() {
         match db.save_hash(req.hash, req.name, req.folder).await {
             Ok(_) => StatusCode::OK.into_response(),
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
@@ -154,12 +150,9 @@ async fn save_hash_name(
 async fn list_hash_names(
     axum::extract::State(state): axum::extract::State<AppState>
 ) -> impl IntoResponse {
-    let db = {
-        let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
-        db_lock.clone()
-    };
+    let db_lock = state.db.read().await;
 
-    if let Some(db) = db {
+    if let Some(db) = db_lock.as_ref() {
         match db.list_all().await {
             Ok(entries) => Json::<Vec<HashEntryOutput>>(entries).into_response(),
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
@@ -178,12 +171,9 @@ async fn delete_hash_entry(
     axum::extract::State(state): axum::extract::State<AppState>,
     Json(req): Json<DeleteHashRequest>
 ) -> impl IntoResponse {
-    let db = {
-        let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
-        db_lock.clone()
-    };
+    let db_lock = state.db.read().await;
 
-    if let Some(db) = db {
+    if let Some(db) = db_lock.as_ref() {
         match db.delete_hash(&req.hash).await {
             Ok(_) => StatusCode::OK.into_response(),
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
@@ -196,12 +186,9 @@ async fn delete_hash_entry(
 async fn clear_all_database(
     axum::extract::State(state): axum::extract::State<AppState>
 ) -> impl IntoResponse {
-    let db = {
-        let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
-        db_lock.clone()
-    };
+    let db_lock = state.db.read().await;
 
-    if let Some(db) = db {
+    if let Some(db) = db_lock.as_ref() {
         match db.clear_all().await {
             Ok(_) => StatusCode::OK.into_response(),
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
@@ -215,16 +202,13 @@ async fn pull_remote_database(
     axum::extract::State(state): axum::extract::State<AppState>
 ) -> impl IntoResponse {
     let (url, token, user, pass) = {
-        let p = state.profile.lock().unwrap();
+        let p = state.profile.read().await;
         (p.remote_db_url.clone(), p.remote_db_token.clone(), p.remote_db_user.clone(), p.remote_db_pass.clone())
     };
 
-    let db = {
-        let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
-        db_lock.clone()
-    };
+    let db_lock = state.db.read().await;
 
-    if let Some(db) = db {
+    if let Some(db) = db_lock.as_ref() {
         match db.pull_from_remote(&url, &token, &user, &pass).await {
             Ok(_) => StatusCode::OK.into_response(),
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
@@ -238,16 +222,13 @@ async fn push_remote_database(
     axum::extract::State(state): axum::extract::State<AppState>
 ) -> impl IntoResponse {
     let (url, token, user, pass) = {
-        let p = state.profile.lock().unwrap();
+        let p = state.profile.read().await;
         (p.remote_db_url.clone(), p.remote_db_token.clone(), p.remote_db_user.clone(), p.remote_db_pass.clone())
     };
 
-    let db = {
-        let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
-        db_lock.clone()
-    };
+    let db_lock = state.db.read().await;
 
-    if let Some(db) = db {
+    if let Some(db) = db_lock.as_ref() {
         match db.push_to_remote(&url, &token, &user, &pass).await {
             Ok(_) => StatusCode::OK.into_response(),
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
@@ -261,22 +242,14 @@ async fn test_database_connection(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> impl IntoResponse {
     let (url, token, user, pass) = {
-        let p = state.profile.lock().unwrap();
+        let p = state.profile.read().await;
         (p.remote_db_url.clone(), p.remote_db_token.clone(), p.remote_db_user.clone(), p.remote_db_pass.clone())
     };
 
-    let db = {
-        let db_lock = state.db.lock().map_err(|e| e.to_string()).unwrap();
-        db_lock.clone()
-    };
-
-    if let Some(db) = db {
-        match db.pull_from_remote(&url, &token, &user, &pass).await {
-            Ok(_) => "Connection successful!".into_response(),
-            Err(e) => (StatusCode::UNAUTHORIZED, e.to_string()).into_response(),
-        }
-    } else {
-        StatusCode::SERVICE_UNAVAILABLE.into_response()
+    // Use proper test method - no side effects
+    match DatabaseManager::test_remote_connection(&url, &token, &user, &pass).await {
+        Ok(_) => "Connection successful!".into_response(),
+        Err(e) => (StatusCode::UNAUTHORIZED, e.to_string()).into_response(),
     }
 }
 
@@ -290,3 +263,4 @@ struct CliRequest {
 async fn start_cli() -> StatusCode {
     StatusCode::NOT_IMPLEMENTED 
 }
+

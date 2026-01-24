@@ -11,10 +11,10 @@ fn get_config_path(app: &AppHandle) -> PathBuf {
 }
 
 #[tauri::command]
-pub fn save_settings(app: AppHandle, state: State<AppState>, settings: Profile) -> Result<(), String> {
+pub async fn save_settings(app: AppHandle, state: State<'_, AppState>, settings: Profile) -> Result<(), String> {
     // Update in-memory state
     {
-        let mut profile = state.profile.lock().map_err(|e| format!("Lock error: {}", e))?;
+        let mut profile = state.profile.write().await;
         *profile = settings.clone();
     }
     
@@ -32,8 +32,9 @@ pub fn save_settings(app: AppHandle, state: State<AppState>, settings: Profile) 
 }
 
 #[tauri::command]
-pub fn load_settings(state: State<AppState>) -> Result<Profile, String> {
+pub async fn load_settings(state: State<'_, AppState>) -> Result<Profile, String> {
     // Just return what's in memory (which was populated at startup)
-    let profile = state.profile.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
+    let profile = state.profile.read().await;
     Ok(profile.clone())
 }
+

@@ -23,7 +23,7 @@ pub async fn start_translation(
     println!("Starting translation for {} with model {}", folder_path, model);
     
     let api_key = {
-        let profile = state.profile.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
+        let profile = state.profile.read().await;
         profile.api_key.clone().ok_or("API Key not found in settings")?
     };
 
