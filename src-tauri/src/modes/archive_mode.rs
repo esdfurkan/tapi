@@ -8,7 +8,8 @@ use std::path::Path;
 use std::fs;
 use walkdir::WalkDir;
 use anyhow::{Result, anyhow};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 pub async fn start_archive_translation(
     logger: &impl ProgressLogger, 
@@ -21,8 +22,8 @@ pub async fn start_archive_translation(
     stroke_disabled: bool,
     inpaint_only: bool,
     min_font_size: u32,
-    profile: Option<Arc<Mutex<Profile>>>,
-    db: Option<Arc<Mutex<Option<crate::core::database::DatabaseManager>>>>,
+    profile: Option<Arc<RwLock<Profile>>>,
+    db: Option<Arc<RwLock<Option<crate::core::database::DatabaseManager>>>>,
     output_folder: Option<String>,
     included_paths: Option<Vec<String>>
 ) -> Result<()> {
@@ -40,18 +41,15 @@ pub async fn start_archive_translation(
 
     // Get custom endpoints from profile if available
     let endpoints = if let Some(ref p) = profile {
-        if let Ok(prof) = p.lock() {
-            Some(ApiEndpoints {
-                storage: prof.storage_url.clone(),
-                storage_headers: Some(prof.storage_headers.clone()),
-                ocr: prof.ocr_url.clone(),
-                ocr_headers: Some(prof.ocr_headers.clone()),
-                translate: prof.translate_url.clone(),
-                save_debug_json: prof.save_debug_json,
-            })
-        } else {
-            None
-        }
+        let prof = p.read().await;
+        Some(ApiEndpoints {
+            storage: prof.storage_url.clone(),
+            storage_headers: Some(prof.storage_headers.clone()),
+            ocr: prof.ocr_url.clone(),
+            ocr_headers: Some(prof.ocr_headers.clone()),
+            translate: prof.translate_url.clone(),
+            save_debug_json: prof.save_debug_json,
+        })
     } else {
         None
     };

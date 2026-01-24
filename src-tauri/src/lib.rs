@@ -63,10 +63,10 @@ pub fn run() {
                             let mut db_lock = state.db.write().await;
                             *db_lock = Some(db_manager);
                         });
-                        log::info!("Database initialized successfully");
+                        println!("[INFO] Database initialized successfully");
                     }
                     Err(e) => {
-                        log::error!("Failed to initialize database: {}", e);
+                        eprintln!("[ERROR] Failed to initialize database: {}", e);
                     }
                 }
 

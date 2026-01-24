@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 use std::fs;
 use std::collections::HashSet;
 use anyhow::Result;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use crate::config::profile::Profile;
 
 pub struct TranslationOptions {
@@ -20,10 +21,10 @@ pub struct TranslationOptions {
     pub stroke_disabled: bool,
     pub inpaint_only: bool,
     pub min_font_size: u32,
-    pub profile: Option<Arc<Mutex<Profile>>>,
+    pub profile: Option<Arc<RwLock<Profile>>>,
     pub endpoints: Option<ApiEndpoints>,
     pub included_paths: Option<Vec<String>>,
-    pub db: Option<Arc<Mutex<Option<crate::core::database::DatabaseManager>>>>,
+    pub db: Option<Arc<RwLock<Option<crate::core::database::DatabaseManager>>>>,
 }
 
 fn get_model_cost(model: &str) -> u64 {
@@ -150,9 +151,9 @@ pub async fn process_directory(logger: &impl ProgressLogger, input_dir: &Path, o
 
     // Check DB for existing hashes if available
     let mut db_existing_hashes = HashSet::new();
-    let db_manager = if let Some(ref db_mutex) = options.db {
-        let db_lock = db_mutex.lock().map_err(|e| e.to_string()).ok();
-        db_lock.and_then(|lock| lock.clone())
+    let db_manager = if let Some(ref db_rwlock) = options.db {
+        let db_lock = db_rwlock.read().await;
+        db_lock.clone()
     } else {
         None
     };
@@ -308,11 +309,10 @@ async fn process_individual(
                     log_debug(&format!("SAVED: {:?}", out_path));
 
                     // Update credits used
-                    if let Some(profile_mutex) = &options.profile {
-                        if let Ok(mut profile) = profile_mutex.lock() {
-                            profile.total_credits_used += get_model_cost(&options.model);
-                            let _ = profile.save(Path::new("profile.json"));
-                        }
+                    if let Some(profile_rwlock) = &options.profile {
+                        let mut profile = profile_rwlock.write().await;
+                        profile.total_credits_used += get_model_cost(&options.model);
+                        let _ = profile.save(Path::new("profile.json"));
                     }
 
                     // Update history
@@ -320,22 +320,21 @@ async fn process_individual(
                         history.insert(hash.clone());
                         
                         // ALSO Save to Database for centralized history
-                        if let Some(ref db_mutex) = options.db {
-                            if let Ok(db_lock) = db_mutex.lock() {
-                                if let Some(db) = db_lock.as_ref() {
-                                    let name = img_path.file_name().unwrap_or_default().to_string_lossy().to_string();
-                                    // Get the immediate folder name for grouping
-                                    let folder_name = img_path.parent()
-                                        .and_then(|p| p.file_name())
-                                        .map(|n| n.to_string_lossy().to_string())
-                                        .unwrap_or_else(|| "Root".to_string());
-                                    
-                                    let db_clone = db.clone();
-                                    let hash_clone = hash.clone();
-                                    tokio::spawn(async move {
-                                        let _ = db_clone.save_hash(hash_clone, name, folder_name).await;
-                                    });
-                                }
+                        if let Some(ref db_rwlock) = options.db {
+                            let db_lock = db_rwlock.read().await;
+                            if let Some(db) = db_lock.as_ref() {
+                                let name = img_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                                // Get the immediate folder name for grouping
+                                let folder_name = img_path.parent()
+                                    .and_then(|p| p.file_name())
+                                    .map(|n| n.to_string_lossy().to_string())
+                                    .unwrap_or_else(|| "Root".to_string());
+                                
+                                let db_clone = db.clone();
+                                let hash_clone = hash.clone();
+                                tokio::spawn(async move {
+                                    let _ = db_clone.save_hash(hash_clone, name, folder_name).await;
+                                });
                             }
                         }
 
