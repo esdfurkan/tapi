@@ -137,6 +137,39 @@
     }
   }
 
+  // Manual Entry Logic
+  let isAddingManual = false;
+  let manualHash = "";
+  let manualName = "";
+  let manualFolder = "";
+
+  async function saveManualEntry() {
+    if (!manualHash || !manualName) {
+        alert("Hash and Name are required!");
+        return;
+    }
+    
+    // Auto-detect folder if empty or use "Manual"
+    const folder = manualFolder.trim() || "Manual Additions";
+    
+    try {
+        await api.command('save_hash_name', { 
+            hash: manualHash, 
+            name: manualName, 
+            folder: folder 
+        });
+        
+        isAddingManual = false;
+        manualHash = "";
+        manualName = "";
+        manualFolder = "";
+        await loadEntries();
+    } catch (e) {
+        alert("Failed to save entry: " + e);
+        console.error(e);
+    }
+  }
+
   $: filteredEntries = entries.filter(e => 
     e.hash.toLowerCase().includes(searchTerm.toLowerCase()) || 
     e.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -377,6 +410,14 @@
                 </button>
             {/if}
             <button 
+                on:click={() => isAddingManual = !isAddingManual}
+                class="flex-1 h-full bg-blue-600 hover:bg-blue-700 text-white rounded-2xl flex flex-col items-center justify-center gap-1 transition-all"
+                title="Add Manual Entry"
+            >
+                <Hash size={20} />
+                <span class="text-[10px] font-bold uppercase">Add</span>
+            </button>
+            <button 
               on:click={loadEntries} 
               class="flex-1 h-full bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all"
             >
@@ -385,6 +426,22 @@
             </button>
         </div>
     </div>
+
+    <!-- Manual Add Form -->
+    {#if isAddingManual}
+        <div class="bg-white dark:bg-gray-900 border border-blue-200 dark:border-blue-900/50 rounded-3xl p-6 shadow-sm mb-4" transition:slide>
+             <h4 class="font-bold dark:text-white mb-4 flex items-center gap-2"><Hash size={18} class="text-blue-500"/> Add New Entry</h4>
+             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <input type="text" bind:value={manualHash} placeholder="File Hash (MD5/Blake3)..." class="px-4 py-2 bg-gray-50 dark:bg-gray-800 border-none rounded-xl text-sm dark:text-white outline-none focus:ring-2 focus:ring-blue-500" />
+                <input type="text" bind:value={manualName} placeholder="Identity / Name..." class="px-4 py-2 bg-gray-50 dark:bg-gray-800 border-none rounded-xl text-sm dark:text-white outline-none focus:ring-2 focus:ring-blue-500" />
+                <input type="text" bind:value={manualFolder} placeholder="Folder (Optional)..." class="px-4 py-2 bg-gray-50 dark:bg-gray-800 border-none rounded-xl text-sm dark:text-white outline-none focus:ring-2 focus:ring-blue-500" />
+             </div>
+             <div class="mt-4 flex justify-end gap-2">
+                 <button on:click={() => isAddingManual = false} class="px-4 py-2 text-gray-500 font-bold text-xs uppercase hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg">Cancel</button>
+                 <button on:click={saveManualEntry} class="px-6 py-2 bg-blue-600 text-white font-bold text-xs uppercase rounded-xl hover:bg-blue-700">Save Entry</button>
+             </div>
+        </div>
+    {/if}
 
     <!-- Main Content Tree View -->
     <div class="space-y-4">

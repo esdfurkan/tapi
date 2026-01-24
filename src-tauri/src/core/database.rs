@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 pub struct HashEntry {
     pub hash: String,
     pub name: String,
+    #[serde(default)]
     pub folder: String,
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
 }
@@ -20,6 +21,7 @@ pub struct HashEntry {
 pub struct HashEntryOutput {
     pub hash: String,
     pub name: String,
+    #[serde(default)]
     pub folder: String,
     pub created_at: String,
 }
