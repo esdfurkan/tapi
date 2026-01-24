@@ -50,7 +50,7 @@ pub fn run() {
                 // Initialize database
                 let db_path = config_dir.join("tapi_db"); // Changed name to avoid conflict with sqlite
                 let handle_clone = handle.clone();
-                tauri::async_runtime::block_on(async move {
+                tauri::async_runtime::spawn(async move {
                     if let Ok(db_manager) = crate::core::database::DatabaseManager::new(db_path).await {
                         let state = handle_clone.state::<AppState>();
                         let mut db_lock = state.db.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string()).unwrap();
