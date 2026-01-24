@@ -10,6 +10,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 const REMOTE_TIMEOUT_SECS: u64 = 15;
+const LOCAL_TIMEOUT_SECS: u64 = 5;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct HashEntry {
@@ -20,7 +21,7 @@ pub struct HashEntry {
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct HashEntryOutput {
     pub hash: String,
     pub name: String,
@@ -36,48 +37,88 @@ pub struct DatabaseManager {
 
 impl DatabaseManager {
     pub async fn new(path: PathBuf) -> Result<Self> {
-        let db: Surreal<Db> = Surreal::new::<SurrealKv>(path.to_str().unwrap()).await?;
+        let path_str = path.to_str().unwrap().to_string();
+        
+        // Initialize in background to not block
+        let db: Surreal<Db> = Surreal::new::<SurrealKv>(&path_str).await?;
         db.use_ns("tapi").use_db("main").await?;
+        
         Ok(Self { db })
     }
 
     pub async fn save_hash(&self, hash: String, name: String, folder: String) -> Result<()> {
-        let _: Option<HashEntry> = self.db
-            .upsert(("file_hashes", &hash))
-            .content(HashEntry {
-                hash,
-                name,
-                folder,
-                created_at: Some(chrono::Utc::now()),
-            })
-            .await?;
+        let db = self.db.clone();
+        
+        tokio::time::timeout(Duration::from_secs(LOCAL_TIMEOUT_SECS), async move {
+            let _: Option<HashEntry> = db
+                .upsert(("file_hashes", &hash))
+                .content(HashEntry {
+                    hash,
+                    name,
+                    folder,
+                    created_at: Some(chrono::Utc::now()),
+                })
+                .await?;
+            Ok::<(), anyhow::Error>(())
+        }).await.map_err(|_| anyhow::anyhow!("Save timeout"))??;
+        
         Ok(())
     }
 
     pub async fn get_name(&self, hash: &str) -> Result<Option<String>> {
-        let entry: Option<HashEntry> = self.db.select(("file_hashes", hash)).await?;
-        Ok(entry.map(|e| e.name))
+        let db = self.db.clone();
+        let hash = hash.to_string();
+        
+        let result = tokio::time::timeout(Duration::from_secs(LOCAL_TIMEOUT_SECS), async move {
+            let entry: Option<HashEntry> = db.select(("file_hashes", &hash)).await?;
+            Ok::<Option<String>, anyhow::Error>(entry.map(|e| e.name))
+        }).await.map_err(|_| anyhow::anyhow!("Get timeout"))??;
+        
+        Ok(result)
     }
 
     pub async fn list_all(&self) -> Result<Vec<HashEntryOutput>> {
-        let mut entries: Vec<HashEntry> = self.db.select("file_hashes").await?;
-        entries.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        let db = self.db.clone();
         
-        Ok(entries.into_iter().map(|e| HashEntryOutput {
-            hash: e.hash,
-            name: e.name,
-            folder: e.folder,
-            created_at: e.created_at.map(|c| c.to_rfc3339()).unwrap_or_default(),
-        }).collect())
+        let result = tokio::time::timeout(Duration::from_secs(LOCAL_TIMEOUT_SECS), async move {
+            let mut entries: Vec<HashEntry> = db.select("file_hashes").await?;
+            
+            // Sort by date descending
+            entries.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+            
+            let output: Vec<HashEntryOutput> = entries.into_iter().map(|e| HashEntryOutput {
+                hash: e.hash,
+                name: e.name,
+                folder: e.folder,
+                created_at: e.created_at.map(|c| c.to_rfc3339()).unwrap_or_default(),
+            }).collect();
+            
+            Ok::<Vec<HashEntryOutput>, anyhow::Error>(output)
+        }).await.map_err(|_| anyhow::anyhow!("List timeout"))??;
+        
+        Ok(result)
     }
 
     pub async fn delete_hash(&self, hash: &str) -> Result<()> {
-        let _: Option<HashEntry> = self.db.delete(("file_hashes", hash)).await?;
+        let db = self.db.clone();
+        let hash = hash.to_string();
+        
+        tokio::time::timeout(Duration::from_secs(LOCAL_TIMEOUT_SECS), async move {
+            let _: Option<HashEntry> = db.delete(("file_hashes", &hash)).await?;
+            Ok::<(), anyhow::Error>(())
+        }).await.map_err(|_| anyhow::anyhow!("Delete timeout"))??;
+        
         Ok(())
     }
 
     pub async fn clear_all(&self) -> Result<()> {
-        let _: Vec<HashEntry> = self.db.delete("file_hashes").await?;
+        let db = self.db.clone();
+        
+        tokio::time::timeout(Duration::from_secs(LOCAL_TIMEOUT_SECS), async move {
+            let _: Vec<HashEntry> = db.delete("file_hashes").await?;
+            Ok::<(), anyhow::Error>(())
+        }).await.map_err(|_| anyhow::anyhow!("Clear timeout"))??;
+        
         Ok(())
     }
 
@@ -116,7 +157,8 @@ impl DatabaseManager {
     // --- Dynamic Protocol Support (HTTP/WS) with Timeout ---
 
     pub async fn push_to_remote(&self, url: &str, token: &str, user: &str, pass: &str) -> Result<()> {
-        let entries: Vec<HashEntry> = self.db.select("file_hashes").await?;
+        let db = self.db.clone();
+        let entries: Vec<HashEntry> = db.select("file_hashes").await?;
         if entries.is_empty() { return Ok(()); }
 
         let timeout = Duration::from_secs(REMOTE_TIMEOUT_SECS);
@@ -124,10 +166,10 @@ impl DatabaseManager {
         tokio::time::timeout(timeout, async {
             if url.starts_with("ws") {
                 let remote_db = Surreal::new::<Ws>(url.trim_start_matches("ws://").trim_start_matches("wss://")).await?;
-                self.sync_push(&remote_db, token, user, pass, entries).await?;
+                Self::sync_push(&remote_db, token, user, pass, entries).await?;
             } else {
                 let remote_db = Surreal::new::<Http>(url.trim_start_matches("http://").trim_start_matches("https://")).await?;
-                self.sync_push(&remote_db, token, user, pass, entries).await?;
+                Self::sync_push(&remote_db, token, user, pass, entries).await?;
             }
             Ok::<(), anyhow::Error>(())
         }).await.map_err(|_| anyhow::anyhow!("Push timeout ({}s)", REMOTE_TIMEOUT_SECS))??;
@@ -136,15 +178,16 @@ impl DatabaseManager {
     }
 
     pub async fn pull_from_remote(&self, url: &str, token: &str, user: &str, pass: &str) -> Result<()> {
+        let db = self.db.clone();
         let timeout = Duration::from_secs(REMOTE_TIMEOUT_SECS);
         
         tokio::time::timeout(timeout, async {
             if url.starts_with("ws") {
                 let remote_db = Surreal::new::<Ws>(url.trim_start_matches("ws://").trim_start_matches("wss://")).await?;
-                self.sync_pull(&remote_db, token, user, pass).await?;
+                Self::sync_pull(&db, &remote_db, token, user, pass).await?;
             } else {
                 let remote_db = Surreal::new::<Http>(url.trim_start_matches("http://").trim_start_matches("https://")).await?;
-                self.sync_pull(&remote_db, token, user, pass).await?;
+                Self::sync_pull(&db, &remote_db, token, user, pass).await?;
             }
             Ok::<(), anyhow::Error>(())
         }).await.map_err(|_| anyhow::anyhow!("Pull timeout ({}s)", REMOTE_TIMEOUT_SECS))??;
@@ -152,7 +195,7 @@ impl DatabaseManager {
         Ok(())
     }
 
-    async fn sync_push<C: surrealdb::Connection>(&self, remote_db: &Surreal<C>, token: &str, user: &str, pass: &str, entries: Vec<HashEntry>) -> Result<()> {
+    async fn sync_push<C: surrealdb::Connection>(remote_db: &Surreal<C>, token: &str, user: &str, pass: &str, entries: Vec<HashEntry>) -> Result<()> {
         Self::auth_remote(remote_db, token, user, pass).await?;
         
         let _ = remote_db
@@ -162,12 +205,12 @@ impl DatabaseManager {
         Ok(())
     }
 
-    async fn sync_pull<C: surrealdb::Connection>(&self, remote_db: &Surreal<C>, token: &str, user: &str, pass: &str) -> Result<()> {
+    async fn sync_pull<C: surrealdb::Connection>(local_db: &Surreal<Db>, remote_db: &Surreal<C>, token: &str, user: &str, pass: &str) -> Result<()> {
         Self::auth_remote(remote_db, token, user, pass).await?;
         
         let remote_entries: Vec<HashEntry> = remote_db.select("file_hashes").await?;
         if !remote_entries.is_empty() {
-            let _ = self.db
+            let _ = local_db
                 .query("INSERT INTO file_hashes $entries ON DUPLICATE KEY UPDATE name = $after.name, folder = $after.folder, created_at = $after.created_at")
                 .bind(("entries", remote_entries))
                 .await?;
@@ -175,4 +218,3 @@ impl DatabaseManager {
         Ok(())
     }
 }
-
